@@ -1,4 +1,5 @@
 # src/models/order.py
+from src.config import W_QUANTITY, W_DEADLINE, STOCK_BONUS
 
 # ini buat OrderItem class
 from dataclasses import dataclass
@@ -29,25 +30,23 @@ class Order:
     total_price: float
     status_id: int
 
-    status_name: str # bakal dibuat untuk hasil JOIN dari tabel status
-    # cara kerja field diambil dari fitur dataclassess
-    # tiap kali ada data yang masuk dalam hal ini adalah order, maka akan dibuat sebuah list baru
+    status_name: str 
     items: List[OrderItem] = field(default_factory=list) 
 
     priority_score: float = 0.0
     total_quantity: int = field(init=False)
 
-    # method ini digunakan tepat setelah atribut __init__ sudah terinisialisasi. dalam kasus ini otomatis dengan menggunakan dataclass
-    # disini __post_init__ mengakses atribut items dan melakukan iterasi terhadap semua elemen di list self.items yang merupakan list dari objek OrderItem
-    # untuk tiap objek item, nilai atribut yang diambil adalah quantity. jadi tiap order maka diambil quantity dari order tersebut kemudiam dijumlahkan dan masuk ke total_quantity
     def __post_init__(self):
         self.total_quantity = sum(item.quantity for item in self.items) # belum paham
-
+    
     def calculate_priority_score(self, current_stock_alert: bool = False):
-        time_to_deadline = (self.deadline - datetime.datetime.now()).total_seconds()
-        quantity_factor = self.total_quantity
-        stock_factor = 50 if current_stock_alert else 0
-        self.priority_score = 0.0
+        time_remaining_seconds = (self.deadline - datetime.datetime.now()).total_seconds()
+        # time_to_deadline = (self.deadline - datetime.datetime.now()).total_seconds()
+        time_factor = 1.0 / max(1.0, time_remaining_seconds)
+        score_deadline = W_DEADLINE * time_factor
+        score_quantity = W_QUANTITY * self.total_quantity
+        score_stock = STOCK_BONUS if current_stock_alert else 0
+        self.priority_score = score_deadline + score_quantity + score_stock
 
     def __lt__(self, other):
         return self.priority_score < other.priority_score
