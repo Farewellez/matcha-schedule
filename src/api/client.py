@@ -703,5 +703,92 @@ class DatabaseClient:
             print(f"❌ DB Error (get_low_stock_ingredients): {e}")
             return []
 
+    # Tambahkan ini ke src/api/client.py di kelas DatabaseClient
+
+from datetime import datetime
+import psycopg2 
+
+def create_order_transaction(self, customer_id: int, total_price: int, total_quantity: int, deadline: datetime, order_items: list) -> int | None:
+    """
+    Membuat pesanan baru, item pesanan, dan mengurangi stok bahan baku
+    dalam satu transaksi database.
+    """
+    try:
+        # Mulai Transaksi
+        self.conn.autocommit = False 
+
+        # 1. SISIPKAN KE TABEL ORDERS
+        order_query = """
+            INSERT INTO orders (customer_id, total_price, total_quantity, order_date, deadline, status_id)
+            VALUES (%s, %s, %s, NOW(), %s, 1)  -- status_id=1 (Pending)
+            RETURNING order_id;
+        """
+        self.cursor.execute(order_query, (customer_id, total_price, total_quantity, deadline))
+        order_id = self.cursor.fetchone()[0]
+        
+        # 2. SISIPKAN KE TABEL ORDER_ITEM & VERIFIKASI STOK
+        for item in order_items:
+            product_id = item['product_id']
+            quantity = item['quantity']
+            
+            # A. Sisipkan Order Item
+            item_query = """
+                INSERT INTO order_item (order_id, product_id, quantity, subtotal)
+                VALUES (%s, %s, %s, %s);
+            """
+            self.cursor.execute(item_query, (order_id, product_id, quantity, item['subtotal']))
+
+            # B. Ambil Daftar Bahan Baku (Product_Ingredients)
+            # Query ini mengambil bahan baku apa saja yang dibutuhkan produk ini.
+            ing_query = """
+                SELECT ingredient_id, quantity_needed 
+                FROM product_ingredients 
+                WHERE product_id = %s;
+            """
+            self.cursor.execute(ing_query, (product_id,))
+            required_ingredients = self.cursor.fetchall()
+            
+            for ing_id, needed_per_unit in required_ingredients:
+                total_needed = needed_per_unit * quantity
+                
+                # C. Verifikasi Stok Saat Ini
+                stock_check_query = """
+                    SELECT ingredient_name, stock FROM ingredient WHERE ingredient_id = %s FOR UPDATE;
+                """
+                # FOR UPDATE mengunci baris stok agar tidak diubah oleh transaksi lain
+                self.cursor.execute(stock_check_query, (ing_id,))
+                result = self.cursor.fetchone()
+                
+                if not result:
+                    raise Exception(f"Bahan Baku ID {ing_id} tidak ditemukan.")
+                
+                ing_name, current_stock = result
+                
+                if current_stock < total_needed:
+                    raise Exception(f"Stok bahan '{ing_name}' tidak mencukupi. Tersedia: {current_stock}, Dibutuhkan: {total_needed}")
+
+                # D. Kurangi Stok
+                stock_update_query = """
+                    UPDATE ingredient SET stock = stock - %s WHERE ingredient_id = %s;
+                """
+                self.cursor.execute(stock_update_query, (total_needed, ing_id))
+        
+        # 3. Commit Transaksi jika semua berhasil
+        self.conn.commit()
+        self.conn.autocommit = True
+        return order_id
+
+    except Exception as e:
+        # Rollback jika ada error (stok tidak cukup, DB error, dll.)
+        self.conn.rollback()
+        self.conn.autocommit = True
+        print(f"❌ Transaksi Gagal (create_order_transaction): {e}")
+        return None
+    except psycopg2.Error as db_e:
+        self.conn.rollback()
+        self.conn.autocommit = True
+        print(f"❌ DB Error (create_order_transaction): {db_e}")
+        return None
+
     def __del__(self):
         self.close()
