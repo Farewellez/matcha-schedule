@@ -1,9 +1,10 @@
 import os
 from datetime import datetime
+from ..api.client import DatabaseClient
 
 class CustomerView:
-    def __init__(self, data_store, customer_data):
-        self.data = data_store
+    def __init__(self, db_client: DatabaseClient, customer_data):
+        self.db_client = db_client
         self.customer = customer_data
         
     def clear_screen(self):
@@ -31,8 +32,13 @@ class CustomerView:
         print("=" * 50)
         
         try:
-            products = self.data['products']
-            
+            # products = self.data['products']
+            products_raw = self.db_client.fetch_all_products()
+            products = [
+                {'product_id': r[0], 'product_name': r[1], 'description': r[2], 'price': r[3]}
+                for r in products_raw
+            ]
+
             if not products:
                 print("\nBelum ada produk tersedia.")
             else:
@@ -57,7 +63,11 @@ class CustomerView:
         print("=" * 50)
         
         try:
-            products = self.data['products']
+            products_raw = self.db_client.fetch_all_products() # Asumsi ini sudah ada di client.py
+            products = [
+                {'product_id': r[0], 'product_name': r[1], 'description': r[2], 'price': r[3]} 
+                for r in products_raw
+            ]
             
             if not products:
                 print("\nBelum ada produk tersedia.")
@@ -144,38 +154,46 @@ class CustomerView:
                 input("Tekan Enter untuk kembali")
                 return
             
+            deadline_format = "%Y-%m-%d %H:%M"
+            # Loop untuk memastikan input deadline valid
+            while True:
+                deadline_input = input(f"\nMasukkan Deadline Pesanan ({deadline_format}): ").strip()
+                try:
+                    deadline_object = datetime.strptime(deadline_input, deadline_format)
+                    
+                    # Tambahkan validasi sederhana: deadline harus di masa depan
+                    if deadline_object <= datetime.now():
+                        print("❌ Deadline harus di masa depan!")
+                        continue
+                    break # Keluar dari loop jika valid
+                except ValueError:
+                    print(f"❌ Format tanggal/waktu salah! Gunakan format {deadline_format}")
+
+            # 1. Hitung total quantity
+            total_quantity = sum(item['quantity'] for item in order_items)
+
+            try:
+                order_id = self.db_client.create_order_transaction(
+                    customer_id=self.customer['customer_id'],
+                    total_price=total_price,
+                    total_quantity=total_quantity, # <-- BARU!
+                    deadline=deadline_object, # deadline object
+                    order_items=order_items
+                )
+
+                if order_id:
+                    print(f"\nPesanan berhasil dibuat dan dimasukkan ke DB! (Order ID: {order_id})")
+                    print("Scheduler akan memproses pesanan ini.")
+                else:
+                    print("\n❌ Gagal membuat pesanan (Database Error).")
+
+            except Exception as e:
+                print(f"Error Database saat membuat pesanan: {e}")
+
             # Generate new order ID
             new_order_id = max([o['order_id'] for o in self.data['orders']], default=0) + 1
-            
-            # Create order
-            new_order = {
-                'order_id': new_order_id,
-                'customer_id': self.customer['customer_id'],
-                'order_timestamp': datetime.now(),
-                'total_price': total_price,
-                'status': 'Menunggu Konfirmasi'
-            }
-            
-            self.data['orders'].append(new_order)
-            
-            # Add order items
-            for item in order_items:
-                new_item_id = max([oi['order_item_id'] for oi in self.data['order_items']], default=0) + 1
-                new_order_item = {
-                    'order_item_id': new_item_id,
-                    'order_id': new_order_id,
-                    'product_id': item['product_id'],
-                    'quantity': item['quantity']
-                }
-                self.data['order_items'].append(new_order_item)
-            
-            print(f"\nPesanan berhasil dibuat! (Order ID: {new_order_id})")
-            print("Silakan upload bukti pembayaran untuk konfirmasi.")
-            input("\nTekan Enter untuk kembali...")
-            
         except Exception as e:
-            print(f"Error: {e}")
-            input("Tekan Enter untuk kembali...")
+            print(e) 
     
     # ==================== LIHAT DAFTAR PESANAN ====================
     def view_orders(self):
@@ -186,9 +204,18 @@ class CustomerView:
         
         try:
             # Filter orders by customer
-            my_orders = [o for o in self.data['orders'] if o['customer_id'] == self.customer['customer_id']]
-            my_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
+            # my_orders = [o for o in self.data['orders'] if o['customer_id'] == self.customer['customer_id']]
+            # my_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
             
+            my_orders_raw = self.db_client.fetch_customer_orders(self.customer['customer_id'])
+            
+            # Konversi data mentah dari DB ke format tampilan dictionary/list.
+            # Asumsi: DB client mengembalikan status_name (JOIN status)
+            my_orders = [
+                {'order_id': r[0], 'order_timestamp': r[1], 'total_price': r[2], 'status': r[3]}
+                for r in my_orders_raw
+            ]
+
             if not my_orders:
                 print("\nBelum ada pesanan.")
             else:
@@ -214,12 +241,13 @@ class CustomerView:
         
         try:
             # Get pending orders
+            pending_orders_raw = self.db_client.fetch_pending_orders_by_customer(self.customer['customer_id'])
             pending_orders = [
-                o for o in self.data['orders'] 
-                if o['customer_id'] == self.customer['customer_id'] 
-                and o['status'] == 'Menunggu Konfirmasi'
+                {'order_id': r[0], 'order_timestamp': r[1], 'total_price': r[2], 'status': r[3]}
+                for r in pending_orders_raw
             ]
-            pending_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
+
+            # pending_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
             
             if not pending_orders:
                 print("\nTidak ada pesanan yang menunggu konfirmasi.")
@@ -230,24 +258,26 @@ class CustomerView:
             print("-" * 60)
             print("{:<8} {:<20} {:<15}".format("ID", "Tanggal", "Total"))
             print("-" * 60)
+
             for o in pending_orders:
                 timestamp = o['order_timestamp'].strftime("%d-%m-%Y %H:%M")
                 print("{:<8} {:<20} Rp {:>12,}".format(o['order_id'], timestamp, o['total_price']))
             
-            order_id = input("\nMasukkan Order ID: ").strip()
+            order_id_input = input("\nMasukkan Order ID: ").strip()
+            
             try:
-                order_id = int(order_id)
+                order_id = int(order_id_input)
             except ValueError:
                 print("ID harus berupa angka!")
                 input("Tekan Enter untuk kembali")
                 return
             
             # Find order
-            order = None
-            for o in pending_orders:
-                if o['order_id'] == order_id:
-                    order = o
-                    break
+            order = next((o for o in pending_orders if o['order_id'] == order_id), None)
+            # for o in pending_orders:
+            #     if o['order_id'] == order_id:
+            #         order = o
+            #         break
             
             if not order:
                 print("Order tidak ditemukan atau sudah dikonfirmasi!")
@@ -266,11 +296,18 @@ class CustomerView:
             
             # Mock upload process
             print("\nUploading file")
-            print("File berhasil diupload!")
-            print("Menunggu konfirmasi admin")
+            # print("File berhasil diupload!")
+            # print("Menunggu konfirmasi admin")
             
-            # In real implementation, could add payment_proof field to order
-            
+            # # In real implementation, could add payment_proof field to order
+            # Update status pesanan di DB menjadi 'Diproses' (Asumsi status_id = 2)
+            if self.db_client.update_order_status(order_id, 2):
+                print("✅ Pembayaran berhasil dikonfirmasi!")
+                print("Status pesanan diperbarui menjadi 'Diproses'.")
+                print("Scheduler akan mulai menghitung prioritas dan menjadwalkan produksi.")
+            else:
+                print("❌ Gagal memperbarui status di database.")
+
             input("\nTekan Enter untuk kembali")
             
         except Exception as e:
@@ -293,35 +330,37 @@ class CustomerView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Find order
-            order = None
-            for o in self.data['orders']:
-                if o['order_id'] == order_id and o['customer_id'] == self.customer['customer_id']:
-                    order = o
-                    break
+            # --- Perbaikan 1: Ambil data dari DB ---
+            order_data = self.db_client.fetch_order_details_by_id(order_id, self.customer['customer_id'])
+
+            # # Find order
+            # order = None
+            # for o in self.data['orders']:
+            #     if o['order_id'] == order_id and o['customer_id'] == self.customer['customer_id']:
+            #         order = o
+            #         break
             
-            if not order:
+            if not order_data:
                 print("Order tidak ditemukan!")
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Get order items
-            items = []
-            for oi in self.data['order_items']:
-                if oi['order_id'] == order_id:
-                    product = next((p for p in self.data['products'] if p['product_id'] == oi['product_id']), None)
-                    if product:
-                        items.append({
-                            'product_name': product['product_name'],
-                            'quantity': oi['quantity'],
-                            'price': product['price']
-                        })
+            # Pisahkan hasil dari DB
+            # order_header: (order_id, order_timestamp, total_price, status_name, deadline)
+            order_header, items_raw = order_data
+            
+            # Konversi item untuk tampilan:
+            items = [
+                {'product_name': r[0], 'quantity': r[1], 'price': r[2]}
+                for r in items_raw
+            ]
             
             # Display
             print("\n" + "=" * 50)
-            print(f"ORDER ID: {order['order_id']}")
-            print(f"Tanggal: {order['order_timestamp'].strftime('%d-%m-%Y %H:%M')}")
-            print(f"Status: {order['status']}")
+            print(f"ORDER ID: {order_header[0]}")
+            print(f"Tanggal Pesan: {order_header[1].strftime('%d-%m-%Y %H:%M')}")
+            print(f"Status: {order_header[3]}")
+            print(f"DEADLINE: {order_header[4].strftime('%d-%m-%Y %H:%M')}") # Tambah Deadline
             print("=" * 50)
             
             print("\nDetail Pesanan:")
@@ -330,7 +369,7 @@ class CustomerView:
                 print(f"{item['quantity']}x {item['product_name']}")
                 print(f"Rp {item['price']:,} x {item['quantity']} = Rp {item['price'] * item['quantity']:,}")
             print("-" * 50)
-            print(f"TOTAL: Rp {order['total_price']:,}")
+            print(f"TOTAL: Rp {order_header['total_price']:,}")
             
             print("\n" + "=" * 50)
             print("Info Penerima:")
@@ -338,15 +377,26 @@ class CustomerView:
             print(f"Email: {self.customer['email']}")
             print("=" * 50)
             
-            # Status timeline
+            # 3. Status Timeline
+            # Timeline menggunakan status_name (order_header[3])
+            current_status = order_header[3]
             print("\nStatus Timeline:")
-            print("Menunggu Konfirmasi")
-            if order['status'] in ['Diproses', 'Dikirim', 'Selesai']:
-                print("Diproses")
-            if order['status'] in ['Dikirim', 'Selesai']:
-                print("Dikirim")
-            if order['status'] == 'Selesai':
-                print("Selesai")
+
+            # Cek status berikutnya (Diproses)
+            if current_status in ['Diproses', 'Dikirim', 'Selesai']:
+                print(f"✅ Diproses (Sedang diproduksi oleh Scheduler)")
+            elif current_status == 'Menunggu Konfirmasi':
+                print("   Diproses")
+            
+            # Cek status berikutnya (Dikirim)
+            if current_status in ['Dikirim', 'Selesai']:
+                print("✅ Dikirim")
+            elif current_status in ['Menunggu Konfirmasi', 'Diproses']:
+                print("   Dikirim")
+
+            # Cek status terakhir (Selesai)
+            if current_status == 'Selesai':
+                print("✅ Selesai (Pesanan diterima)")
             
             input("\nTekan Enter untuk kembali")
             
@@ -363,8 +413,13 @@ class CustomerView:
         
         try:
             # Get customer orders
-            my_orders = [o for o in self.data['orders'] if o['customer_id'] == self.customer['customer_id']]
-            my_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
+            my_orders_raw = self.db_client.fetch_customer_orders(self.customer['customer_id'])
+            # my_orders = [o for o in self.data['orders'] if o['customer_id'] == self.customer['customer_id']]
+            # my_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
+            my_orders = [
+                {'order_id': r[0], 'order_timestamp': r[1], 'total_price': r[2], 'status': r[3]}
+                for r in my_orders_raw
+            ]
             my_orders = my_orders[:10]  
             
             if not my_orders:
@@ -376,12 +431,14 @@ class CustomerView:
             print("-" * 70)
             print("{:<8} {:<20} {:<15} {:<25}".format("ID", "Tanggal", "Total", "Status"))
             print("-" * 70)
+
             for o in my_orders:
                 timestamp = o['order_timestamp'].strftime("%d-%m-%Y %H:%M")
                 print("{:<8} {:<20} Rp {:>12,} {:<25}".format(
                     o['order_id'], timestamp, o['total_price'], o['status']))
             
             order_id = input("\nMasukkan Order ID yang ingin diulang: ").strip()
+            
             try:
                 order_id = int(order_id)
             except ValueError:
@@ -389,34 +446,47 @@ class CustomerView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Find order
-            order = None
-            for o in my_orders:
-                if o['order_id'] == order_id:
-                    order = o
-                    break
+            # --- 2. AMBIL DETAIL ITEM DARI DB UNTUK PESANAN YANG DIPILIH ---
             
-            if not order:
+            # Kita panggil fetch_order_details_by_id (meski kita hanya pakai bagian Items)
+            # Kita perlu customer_id untuk memastikan order ID ini valid milik customer
+            order_data = self.db_client.fetch_order_details_by_id(order_id, self.customer['customer_id'])
+            
+            if not order_data:
                 print("Order tidak ditemukan!")
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Get order items
-            items = []
-            total_price = 0
-            for oi in self.data['order_items']:
-                if oi['order_id'] == order_id:
-                    product = next((p for p in self.data['products'] if p['product_id'] == oi['product_id']), None)
-                    if product:
-                        items.append({
-                            'product_id': product['product_id'],
-                            'product_name': product['product_name'],
-                            'price': product['price'],
-                            'quantity': oi['quantity']
-                        })
-                        total_price += product['price'] * oi['quantity']
+            order_header, items_raw = order_data
+
+            # Format item dan hitung ulang Total Price & Total Quantity untuk pesanan BARU
+            items_to_repeat = []
+            items_to_insert = []
+            new_total_price = 0
+            new_total_quantity = 0
+
+            # Loop untuk menghitung total dan menyiapkan list insert
+            for p_id, p_name, quantity, price in items_raw:
+                 # Siapkan data untuk tampilan
+                 items_to_repeat.append({
+                    'product_name': p_name,
+                    'price': price,
+                    'quantity': quantity
+                })
+                 # Siapkan data untuk insert (hanya ID dan Kuantitas)
+                 items_to_insert.append({
+                    'product_id': p_id, 
+                    'quantity': quantity 
+                })
+                 new_total_price += price * quantity
+                 new_total_quantity += quantity
             
-            if not items:
+            if not items_to_repeat:
+                print("Tidak ada item dalam pesanan!")
+                input("Tekan Enter untuk kembali")
+                return
+            
+            if not items_to_repeat:
                 print("Tidak ada item dalam pesanan!")
                 input("Tekan Enter untuk kembali")
                 return
@@ -425,12 +495,12 @@ class CustomerView:
             print("\n" + "=" * 50)
             print("Detail Pesanan yang akan diulang:")
             print("-" * 50)
-            for item in items:
+            for item in items_to_repeat:
                 subtotal = item['price'] * item['quantity']
                 print(f"{item['quantity']}x {item['product_name']}")
                 print(f"   Rp {item['price']:,} x {item['quantity']} = Rp {subtotal:,}")
             print("-" * 50)
-            print(f"TOTAL: Rp {total_price:,}")
+            print(f"TOTAL: Rp {new_total_price:,}")
             print("=" * 50)
             
             confirm = input("\nUlangi pesanan ini? (y/n): ").strip().lower()
@@ -440,38 +510,76 @@ class CustomerView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Generate new order ID
-            new_order_id = max([o['order_id'] for o in self.data['orders']], default=0) + 1
+            # --- Logika Insert ke DB (Menggantikan 7 baris dummy di bagian akhir) ---
             
-            # Create new order
-            new_order = {
-                'order_id': new_order_id,
-                'customer_id': self.customer['customer_id'],
-                'order_timestamp': datetime.now(),
-                'total_price': total_price,
-                'status': 'Menunggu Konfirmasi'
-            }
+            # Perlu input deadline lagi untuk pesanan baru
+            deadline_format = "%Y-%m-%d %H:%M"
+            while True:
+                deadline_input = input(f"\nMasukkan Deadline Pesanan BARU ({deadline_format}): ").strip()
+                try:
+                    deadline_object = datetime.strptime(deadline_input, deadline_format)
+                    if deadline_object <= datetime.now():
+                        print("❌ Deadline harus di masa depan!")
+                        continue
+                    break
+                except ValueError:
+                    print(f"❌ Format tanggal/waktu salah!")
+
+            try:
+                # Panggil DB Client yang transaksional untuk membuat pesanan baru
+                new_order_id = self.db_client.create_order_transaction(
+                    customer_id=self.customer['customer_id'],
+                    total_price=new_total_price,
+                    total_quantity=new_total_quantity, 
+                    deadline=deadline_object, 
+                    order_items=items_to_insert # <-- Mengandung product_id dan quantity
+                )
+
+                if new_order_id:
+                    print(f"\nPesanan berhasil diulang dan dimasukkan ke DB! (Order ID: {new_order_id})")
+                    print("Scheduler akan memproses pesanan ini.")
+                else:
+                    print("\n❌ Gagal mengulang pesanan (Database Error).")
+
+            except Exception as e:
+                print(f"Error Database saat memproses transaksi: {e}")
             
-            self.data['orders'].append(new_order)
-            
-            # Copy order items
-            for item in items:
-                new_item_id = max([oi['order_item_id'] for oi in self.data['order_items']], default=0) + 1
-                new_order_item = {
-                    'order_item_id': new_item_id,
-                    'order_id': new_order_id,
-                    'product_id': item['product_id'],
-                    'quantity': item['quantity']
-                }
-                self.data['order_items'].append(new_order_item)
-            
-            print(f"\nPesanan berhasil diulang! (Order ID: {new_order_id})")
             print("Silakan upload bukti pembayaran untuk konfirmasi.")
             input("\nTekan Enter untuk kembali")
             
         except Exception as e:
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
+
+            # Create new order
+            # new_order = {
+            #     'order_id': new_order_id,
+            #     'customer_id': self.customer['customer_id'],
+            #     'order_timestamp': datetime.now(),
+            #     'total_price': total_price,
+            #     'status': 'Menunggu Konfirmasi'
+            # }
+            
+            # self.data['orders'].append(new_order)
+            
+            # # Copy order items
+            # for item in items:
+            #     new_item_id = max([oi['order_item_id'] for oi in self.data['order_items']], default=0) + 1
+            #     new_order_item = {
+            #         'order_item_id': new_item_id,
+            #         'order_id': new_order_id,
+            #         'product_id': item['product_id'],
+            #         'quantity': item['quantity']
+            #     }
+            #     self.data['order_items'].append(new_order_item)
+            
+            # print(f"\nPesanan berhasil diulang! (Order ID: {new_order_id})")
+            # print("Silakan upload bukti pembayaran untuk konfirmasi.")
+            # input("\nTekan Enter untuk kembali")
+            
+        # except Exception as e:
+        #     print(f"Error: {e}")
+        #     input("Tekan Enter untuk kembali")
     
     def run(self):
         while True:

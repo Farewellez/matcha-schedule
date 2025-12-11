@@ -27,17 +27,18 @@ class Order:
     customer_id: int
     order_timestamp: datetime.datetime
     deadline: datetime.datetime
+    total_quantity: int
+
     total_price: float
     status_id: int
-
     status_name: str 
-    items: List[OrderItem] = field(default_factory=list) 
 
     priority_score: float = 0.0
-    total_quantity: int = field(init=False)
+    items: List[OrderItem] = field(default_factory=list) 
 
-    def __post_init__(self):
-        self.total_quantity = sum(item.quantity for item in self.items) # belum paham
+
+    # def __post_init__(self):
+    #     self.total_quantity = sum(item.quantity for item in self.items) # belum paham
     
     def calculate_priority_score(self, current_stock_alert: bool = False):
         time_remaining_seconds = (self.deadline - datetime.datetime.now()).total_seconds()
