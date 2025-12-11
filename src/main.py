@@ -4,6 +4,7 @@ import sys
 import os
 import threading # Diperlukan untuk menjalankan Scheduler secara background
 import time # Diperlukan untuk sleep
+from src.controllers.scheduler import ProductionScheduler
 from src.views.auth_view import AuthView
 from src.views.admin_view import AdminView
 from src.views.customer_view import CustomerView
@@ -78,6 +79,9 @@ def main():
         print("\nTerima kasih telah menggunakan sistem kami!\n")
 
 if __name__ == "__main__":
-    # Penting: Tambahkan sys.path jika diperlukan untuk import di atas
-    # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
+    # scheduler = ProductionScheduler()
+    # # Penting: Tambahkan sys.path jika diperlukan untuk import di atas
+    # # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
+    # scheduler_thread = threading.Thread(target=scheduler.start_polling, daemon=True)
+    # scheduler_thread.start()
     main()

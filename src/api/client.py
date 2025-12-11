@@ -312,7 +312,7 @@ class DatabaseClient:
             WHERE ingredient_name = %s;
         """
         try:
-            for reduction_amount, item_name in item_changes:
+            for item_name, reduction_amount in item_changes:
                 # Pastikan pengurangan adalah angka positif (reduction_amount)
                 self.cursor.execute(update_query, (reduction_amount, item_name))
             
@@ -322,6 +322,386 @@ class DatabaseClient:
             self.conn.rollback()
             print(f"❌ Transaction GAGAL saat update inventory. Error: {e}")
             return False
+
+    def check_user_exists(self, username: str, email: str) -> bool:
+        """Memeriksa apakah username atau email sudah terdaftar."""
+        # Query untuk Customer
+        query_customer = """
+            SELECT 1 FROM customer
+            WHERE username = %s OR email = %s
+            LIMIT 1;
+        """
+        # Query untuk Admin
+        query_admin = """
+            SELECT 1 FROM admin
+            WHERE username = %s OR email = %s
+            LIMIT 1;
+        """
+        
+        try:
+            self.cursor.execute(query_customer, (username, email))
+            if self.cursor.fetchone():
+                return True
+            
+            self.cursor.execute(query_admin, (username, email))
+            if self.cursor.fetchone():
+                return True
+
+            return False
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (check_user_exists): {e}")
+            return True  # Asumsikan True (sudah ada) untuk menghindari registrasi ganda jika ada error
+
+    def register_new_customer(self, username: str, fullname: str, phone: str, email: str, hashed_password: str) -> int | None:
+        """Menyimpan pengguna baru ke tabel customer."""
+        query = """
+            INSERT INTO customer (username, fullname, phone, email, password, role_id)
+            VALUES (%s, %s, %s, %s, %s, 2) 
+            RETURNING customer_id;
+        """
+        try:
+            self.cursor.execute(query, (username, fullname, phone, email, hashed_password))
+
+            new_customer_id = self.cursor.fetchone()[0]
+            self.conn.commit()
+            return new_customer_id
+        except psycopg2.IntegrityError as e:
+            self.conn.rollback()
+            # IntegrityError terjadi jika UNIQUE (username/email) dilanggar
+            print(f"❌ DB Integrity Error (register_new_customer): {e}")
+            return None
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (register_new_customer): {e}")
+            return None
+
+    def authenticate_customer(self, username: str, hashed_password: str) -> dict | None:
+        """Mencari dan memverifikasi Customer."""
+        query = """
+            SELECT customer_id, username, fullname, email
+            FROM customer
+            WHERE username = %s AND password = %s;
+        """
+        try:
+            self.cursor.execute(query, (username, hashed_password))
+            result = self.cursor.fetchone()
+
+            if result:
+                # Mengkonversi hasil tuple menjadi dictionary untuk dikembalikan ke AuthView
+                columns = [desc[0] for desc in self.cursor.description]
+                return dict(zip(columns, result))
+            else:
+                return None
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (authenticate_customer): {e}")
+            return None
+
+    def authenticate_admin(self, username: str, hashed_password: str) -> dict | None:
+        """Mencari dan memverifikasi Admin."""
+        query = """
+            SELECT admin_id, username, email
+            FROM admin
+            WHERE username = %s AND password = %s;
+        """
+        try:
+            self.cursor.execute(query, (username, hashed_password))
+            result = self.cursor.fetchone()
+
+            if result:
+                # Mengkonversi hasil tuple menjadi dictionary
+                columns = [desc[0] for desc in self.cursor.description]
+                return dict(zip(columns, result))
+            else:
+                return None
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (authenticate_admin): {e}")
+            return None
+
+    def add_new_product(self, name: str, description: str, price: int) -> int | None:
+        """Menyimpan produk baru ke tabel product dan mengembalikan ID-nya."""
+        query = """
+            INSERT INTO product (product_name, description, price)
+            VALUES (%s, %s, %s)
+            RETURNING product_id;
+        """
+        try:
+            self.cursor.execute(query, (name, description, price))
+            new_product_id = self.cursor.fetchone()[0]
+            self.conn.commit()
+            return new_product_id
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (add_new_product): Gagal menambahkan produk. {e}")
+            return None
+
+    def get_product_by_id(self, product_id: int) -> dict | None:
+        """Mengambil detail produk berdasarkan ID."""
+        query = """
+            SELECT product_id, product_name, description, price
+            FROM product
+            WHERE product_id = %s;
+        """
+        try:
+            self.cursor.execute(query, (product_id,))
+            result = self.cursor.fetchone()
+
+            if result:
+                # Mengkonversi hasil tuple menjadi dictionary
+                columns = [desc[0] for desc in self.cursor.description]
+                return dict(zip(columns, result))
+            return None
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (get_product_by_id): {e}")
+            return None
+    
+    def update_product(self, product_id: int, name: str, description: str, price: int) -> bool:
+        """Memperbarui detail produk."""
+        query = """
+            UPDATE product
+            SET product_name = %s, description = %s, price = %s
+            WHERE product_id = %s;
+        """
+        try:
+            # Perhatikan urutan argumen: name, description, price, product_id
+            self.cursor.execute(query, (name, description, price, product_id))
+            self.conn.commit()
+            # Mengembalikan True jika ada baris yang berhasil diupdate
+            return self.cursor.rowcount > 0 
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (update_product): Gagal update produk. {e}")
+            return False
+    
+    def delete_product_and_relations(self, product_id: int) -> bool:
+        """Menghapus produk dari tabel 'product'. Karena adanya FOREIGN KEY 
+        dengan ON DELETE CASCADE di product_ingredients, relasi akan terhapus otomatis."""
+        query = """
+            DELETE FROM product
+            WHERE product_id = %s;
+        """
+        try:
+            self.cursor.execute(query, (product_id,))
+            self.conn.commit()
+            # Mengembalikan True jika ada baris yang dihapus
+            return self.cursor.rowcount > 0 
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (delete_product_and_relations): {e}")
+            return False
+    
+    def fetch_all_ingredients(self) -> list:
+        """Mengambil semua bahan baku dari tabel ingredient."""
+        query = """
+            SELECT ingredient_id, ingredient_name, unit, stock, minimum_stock
+            FROM ingredient
+            ORDER BY ingredient_id;
+        """
+        try:
+            self.cursor.execute(query)
+            # Ambil semua hasil
+            results = self.cursor.fetchall()
+
+            # Ambil nama kolom
+            columns = [desc[0] for desc in self.cursor.description]
+
+            # Ubah List of Tuples menjadi List of Dictionaries (agar sesuai dengan kode view lama)
+            ingredients_list = []
+            for row in results:
+                ingredients_list.append(dict(zip(columns, row)))
+
+            return ingredients_list
+
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (fetch_all_ingredients): {e}")
+            return []
+
+    def check_ingredient_exists(self, name: str) -> dict | None:
+        """Mencari bahan baku berdasarkan nama (case-insensitive). Mengembalikan data jika ditemukan."""
+        query = """
+            SELECT ingredient_id, ingredient_name, unit, stock, minimum_stock
+            FROM ingredient
+            WHERE LOWER(ingredient_name) = LOWER(%s);
+        """
+        try:
+            self.cursor.execute(query, (name,))
+            result = self.cursor.fetchone()
+            if result:
+                columns = [desc[0] for desc in self.cursor.description]
+                return dict(zip(columns, result))
+            return None
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (check_ingredient_exists): {e}")
+            return None
+
+    def update_ingredient_stock(self, ingredient_id: int, added_stock: int) -> bool:
+        """Menambahkan stok ke bahan baku yang sudah ada."""
+        query = """
+            UPDATE ingredient
+            SET stock = stock + %s
+            WHERE ingredient_id = %s;
+        """
+        try:
+            self.cursor.execute(query, (added_stock, ingredient_id))
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (update_ingredient_stock): {e}")
+            return False
+
+    def add_new_ingredient(self, name: str, unit: str, stock: int, min_stock: int) -> int | None:
+        """Menyimpan bahan baku baru ke database."""
+        query = """
+            INSERT INTO ingredient (ingredient_name, unit, stock, minimum_stock)
+            VALUES (%s, %s, %s, %s)
+            RETURNING ingredient_id;
+        """
+        try:
+            self.cursor.execute(query, (name, unit, stock, min_stock))
+            new_id = self.cursor.fetchone()[0]
+            self.conn.commit()
+            return new_id
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (add_new_ingredient): {e}")
+            return None
+
+    def get_ingredient_by_id(self, ing_id: int) -> dict | None:
+        """Mengambil detail bahan baku berdasarkan ID."""
+        query = """
+            SELECT ingredient_id, ingredient_name, unit, stock, minimum_stock
+            FROM ingredient
+            WHERE ingredient_id = %s;
+        """
+        try:
+            self.cursor.execute(query, (ing_id,))
+            result = self.cursor.fetchone()
+
+            if result:
+                # Mengkonversi hasil tuple menjadi dictionary
+                columns = [desc[0] for desc in self.cursor.description]
+                return dict(zip(columns, result))
+            return None
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (get_ingredient_by_id): {e}")
+            return None
+
+    def update_ingredient_details(self, ing_id: int, name: str, unit: str, min_stock: int) -> bool:
+        """Memperbarui nama, unit, dan minimum_stock bahan baku."""
+        query = """
+            UPDATE ingredient
+            SET ingredient_name = %s, unit = %s, minimum_stock = %s
+            WHERE ingredient_id = %s;
+        """
+        try:
+            # Perhatikan urutan argumen: name, unit, min_stock, ing_id
+            self.cursor.execute(query, (name, unit, min_stock, ing_id))
+            self.conn.commit()
+            # Mengembalikan True jika ada baris yang berhasil diupdate
+            return self.cursor.rowcount > 0 
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (update_ingredient_details): Gagal update bahan baku. {e}")
+            return False
+
+    def set_ingredient_stock(self, ing_id: int, new_stock: int) -> bool:
+        """Mengatur nilai stok bahan baku ke nilai yang spesifik."""
+        query = """
+            UPDATE ingredient
+            SET stock = %s
+            WHERE ingredient_id = %s;
+        """
+        try:
+            # Perhatikan urutan argumen: new_stock, ing_id
+            self.cursor.execute(query, (new_stock, ing_id))
+            self.conn.commit()
+            # Mengembalikan True jika ada baris yang berhasil diupdate
+            return self.cursor.rowcount > 0 
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (set_ingredient_stock): Gagal update stok. {e}")
+            return False
+
+    def delete_ingredient_and_relations(self, ing_id: int) -> bool:
+        """Menghapus bahan baku dari tabel 'ingredient'. Relasi di product_ingredients
+        akan terhapus otomatis karena adanya ON DELETE CASCADE."""
+        query = """
+            DELETE FROM ingredient
+            WHERE ingredient_id = %s;
+        """
+        try:
+            self.cursor.execute(query, (ing_id,))
+            self.conn.commit()
+            # Mengembalikan True jika ada baris yang dihapus
+            return self.cursor.rowcount > 0 
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (delete_ingredient_and_relations): {e}")
+            return False
+        
+    def get_popular_products(self, limit: int = 10) -> list:
+        """Mengambil daftar produk yang paling banyak dipesan (diurutkan berdasarkan total kuantitas)."""
+        
+        query = f"""
+            SELECT 
+                p.product_name,
+                SUM(oi.quantity) AS total_ordered
+            FROM 
+                order_item oi
+            JOIN 
+                product p ON oi.product_id = p.product_id
+            GROUP BY 
+                p.product_name
+            ORDER BY 
+                total_ordered DESC
+            LIMIT 
+                {limit};
+        """
+        try:
+            self.cursor.execute(query)
+            results = self.cursor.fetchall()
+            
+            # Mengkonversi hasil tuple menjadi dictionary (untuk kemudahan di View)
+            columns = [desc[0] for desc in self.cursor.description] # product_name, total_ordered
+            
+            popular_products_list = []
+            for row in results:
+                popular_products_list.append(dict(zip(columns, row)))
+                
+            return popular_products_list
+            
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (get_popular_products): {e}")
+            return []
+
+    def get_low_stock_ingredients(self) -> list:
+        """Mengambil daftar bahan baku yang stoknya lebih rendah atau sama dengan minimum_stock."""
+        query = """
+            SELECT 
+                ingredient_name, unit, stock, minimum_stock
+            FROM 
+                ingredient
+            WHERE 
+                stock <= minimum_stock
+            ORDER BY 
+                stock ASC;
+        """
+        try:
+            self.cursor.execute(query)
+            results = self.cursor.fetchall()
+            
+            # Mengkonversi hasil tuple menjadi dictionary (untuk kemudahan di View)
+            columns = [desc[0] for desc in self.cursor.description] 
+            
+            low_stock_list = []
+            for row in results:
+                low_stock_list.append(dict(zip(columns, row)))
+                
+            return low_stock_list
+            
+        except psycopg2.Error as e:
+            print(f"❌ DB Error (get_low_stock_ingredients): {e}")
+            return []
 
     def __del__(self):
         self.close()

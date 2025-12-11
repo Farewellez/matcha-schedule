@@ -1,8 +1,9 @@
 import os
+from ..api.client import DatabaseClient
 
 class AdminView:
-    def __init__(self, data_store, admin_data):
-        self.data = data_store
+    def __init__(self, db_client: DatabaseClient, admin_data):
+        self.db_client = db_client
         self.admin = admin_data
         
     def clear_screen(self):
@@ -106,18 +107,14 @@ class AdminView:
                 input("Tekan Enter untuk kembali...")
                 return
             
-            # Generate new product ID
-            new_id = max([p['product_id'] for p in self.data['products']], default=0) + 1
+            new_id = self.db_client.add_new_product(name, description, price)
             
-            new_product = {
-                'product_id': new_id,
-                'product_name': name,
-                'description': description,
-                'price': price
-            }
-            
-            self.data['products'].append(new_product)
-            
+            if new_id:
+                print("\nProduk berhasil ditambahkan!")
+                print(f"ID Produk Baru: {new_id}")
+            else:
+                print("\nProduk GAGAL ditambahkan! Cek error database.")
+
             print("\nProduk berhasil ditambahkan!")
             input("Tekan Enter untuk kembali...")
             
@@ -140,12 +137,7 @@ class AdminView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Find product
-            product = None
-            for p in self.data['products']:
-                if p['product_id'] == product_id:
-                    product = p
-                    break
+            product = self.db_client.get_product_by_id(product_id)
             
             if not product:
                 print("Produk tidak ditemukan!")
@@ -176,12 +168,15 @@ class AdminView:
             else:
                 price = product['price']
             
-            # Update product
-            product['product_name'] = name
-            product['description'] = description
-            product['price'] = price
+            is_updated = self.db_client.update_product(
+                product_id, name, description, price
+            )
             
-            print("\nProduk berhasil diupdate!")
+            if is_updated:
+                print("\nProduk berhasil diupdate!")
+            else:
+                print("\nProduk GAGAL diupdate. Cek error database.")
+            
             input("Tekan Enter untuk kembali")
             
         except Exception as e:
@@ -203,12 +198,7 @@ class AdminView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Find product
-            product = None
-            for p in self.data['products']:
-                if p['product_id'] == product_id:
-                    product = p
-                    break
+            product = self.db_client.get_product_by_id(product_id)
             
             if not product:
                 print("Produk tidak ditemukan!")
@@ -218,15 +208,11 @@ class AdminView:
             confirm = input(f"\nHapus produk '{product['product_name']}'? (y/n): ").strip().lower()
             
             if confirm == 'y':
-                self.data['products'].remove(product)
-                
-                # Also remove related product_ingredients
-                self.data['product_ingredients'] = [
-                    pi for pi in self.data['product_ingredients'] 
-                    if pi['product_id'] != product_id
-                ]
-                
-                print("\nProduk berhasil dihapus!")
+                is_deleted = self.db_client.delete_product_and_relations(product_id)
+                if is_deleted:
+                    print("\nProduk berhasil dihapus!")
+                else:
+                    print("\nProduk GAGAL dihapus! Cek database atau ID.")
             else:
                 print("\nPenghapusan dibatalkan.")
             
@@ -276,7 +262,7 @@ class AdminView:
         print("=" * 50)
         
         try:
-            ingredients = self.data['ingredients']
+            ingredients = self.db_client.fetch_all_ingredients()
             
             if not ingredients:
                 print("\nBelum ada bahan baku.")
@@ -309,15 +295,16 @@ class AdminView:
                 return
             
             # Check if ingredient already exists (case insensitive)
-            existing_ingredient = None
-            for ing in self.data['ingredients']:
-                if ing['ingredient_name'].lower() == name.lower():
-                    existing_ingredient = ing
-                    break
+            existing_ingredient = self.db_client.check_ingredient_exists(name)
             
             if existing_ingredient:
+                
+                ing_id = existing_ingredient['ingredient_id']
+                current_stock = existing_ingredient['stock']
+                ing_unit = existing_ingredient['unit']
+
                 print(f"\nBahan '{existing_ingredient['ingredient_name']}' sudah ada!")
-                print(f"Stok saat ini: {existing_ingredient['stock']} {existing_ingredient['unit']}")
+                print(f"Stok saat ini: {current_stock} {ing_unit}")                
                 
                 add_stock = input("\nTambah stok ke bahan yang sudah ada? (y/n): ").strip().lower()
                 
@@ -330,12 +317,16 @@ class AdminView:
                             input("Tekan Enter untuk kembali...")
                             return
                         
-                        existing_ingredient['stock'] += additional_stock
-                        print(f"\nStok berhasil ditambahkan!")
-                        print(f"Stok baru: {existing_ingredient['stock']} {existing_ingredient['unit']}")
+                        if self.db_client.update_ingredient_stock(ing_id, additional_stock):
+                            new_stock = current_stock + additional_stock
+                            print(f"\nStok berhasil ditambahkan!")
+                            print(f"Stok baru: {new_stock} {ing_unit}")
+                        else:
+                             print("\nStok GAGAL ditambahkan! Cek koneksi DB.")
+                        
                         input("Tekan Enter untuk kembali...")
                         return
-                        
+
                     except ValueError:
                         print("Jumlah harus berupa angka!")
                         input("Tekan Enter untuk kembali...")
@@ -376,20 +367,14 @@ class AdminView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Generate new ingredient ID
-            new_id = max([i['ingredient_id'] for i in self.data['ingredients']], default=0) + 1
-            
-            new_ingredient = {
-                'ingredient_id': new_id,
-                'ingredient_name': name,
-                'unit': unit,
-                'stock': stock,
-                'minimum_stock': min_stock
-            }
-            
-            self.data['ingredients'].append(new_ingredient)
-            
-            print("\nBahan baku berhasil ditambahkan!")
+            new_id = self.db_client.add_new_ingredient(name, unit, stock, min_stock)
+
+            if new_id:
+                print("\nBahan baku berhasil ditambahkan!")
+                print(f"ID Bahan Baku Baru: {new_id}")
+            else:
+                 print("\nBahan baku GAGAL ditambahkan! Cek error database.")
+                        
             input("Tekan Enter untuk kembali")
             
         except Exception as e:
@@ -412,11 +397,7 @@ class AdminView:
                 return
             
             # Find ingredient
-            ingredient = None
-            for ing in self.data['ingredients']:
-                if ing['ingredient_id'] == ing_id:
-                    ingredient = ing
-                    break
+            ingredient = self.db_client.get_ingredient_by_id(ing_id)
             
             if not ingredient:
                 print("Bahan baku tidak ditemukan!")
@@ -447,14 +428,17 @@ class AdminView:
             else:
                 min_stock = ingredient['minimum_stock']
             
-            # Update ingredient
-            ingredient['ingredient_name'] = name
-            ingredient['unit'] = unit
-            ingredient['minimum_stock'] = min_stock
-            
-            print("\nBahan baku berhasil diupdate!")
+            is_updated = self.db_client.update_ingredient_details(
+                ing_id, name, unit, min_stock
+            )
+
+            if is_updated:
+                print("\nBahan baku berhasil diupdate!")
+            else:
+                print("\nBahan baku GAGAL diupdate. Cek error database.")
+
             input("Tekan Enter untuk kembali")
-            
+
         except Exception as e:
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
@@ -475,11 +459,7 @@ class AdminView:
                 return
             
             # Find ingredient
-            ingredient = None
-            for ing in self.data['ingredients']:
-                if ing['ingredient_id'] == ing_id:
-                    ingredient = ing
-                    break
+            ingredient = self.db_client.get_ingredient_by_id(ing_id)
             
             if not ingredient:
                 print("Bahan baku tidak ditemukan!")
@@ -501,10 +481,14 @@ class AdminView:
                 input("Tekan Enter untuk kembali")
                 return
             
-            # Update stock
-            ingredient['stock'] = new_stock
+            is_updated = self.db_client.set_ingredient_stock(ing_id, new_stock)
             
-            print("\nStok berhasil diupdate!")
+            if is_updated:
+                print("\nStok berhasil diupdate!")
+                # Kita tidak perlu lagi menampilkan stok baru karena DB sudah melakukannya
+            else:
+                print("\nStok GAGAL diupdate. Cek error database.")
+
             input("Tekan Enter untuk kembali")
             
         except Exception as e:
@@ -527,11 +511,7 @@ class AdminView:
                 return
             
             # Find ingredient
-            ingredient = None
-            for ing in self.data['ingredients']:
-                if ing['ingredient_id'] == ing_id:
-                    ingredient = ing
-                    break
+            ingredient = self.db_client.get_ingredient_by_id(ing_id)
             
             if not ingredient:
                 print("Bahan baku tidak ditemukan!")
@@ -541,15 +521,11 @@ class AdminView:
             confirm = input(f"\n⚠️  Hapus bahan '{ingredient['ingredient_name']}'? (y/n): ").strip().lower()
             
             if confirm == 'y':
-                self.data['ingredients'].remove(ingredient)
-                
-                # Also remove related product_ingredients
-                self.data['product_ingredients'] = [
-                    pi for pi in self.data['product_ingredients'] 
-                    if pi['ingredient_id'] != ing_id
-                ]
-                
-                print("\nBahan baku berhasil dihapus!")
+                is_deleted = self.db_client.delete_ingredient_and_relations(ing_id)                
+                if is_deleted:
+                    print("\nBahan baku berhasil dihapus!")
+                else:
+                    print("\nBahan baku GAGAL dihapus! Cek database atau ID.")
             else:
                 print("\nPenghapusan dibatalkan.")
             
@@ -567,8 +543,9 @@ class AdminView:
         print("=" * 50)
         
         try:
-            ingredients = sorted(self.data['ingredients'], key=lambda x: x['stock'])
-            
+            ingredients_raw = self.db_client.fetch_all_ingredients() 
+            ingredients = sorted(ingredients_raw, key=lambda x: x['stock'])
+
             if not ingredients:
                 print("\nBelum ada data bahan baku.")
                 input("\nTekan Enter untuk kembali")
@@ -637,35 +614,34 @@ class AdminView:
         
         try:
             # Calculate total ordered per product
-            product_totals = {}
-            
-            for order_item in self.data['order_items']:
-                product_id = order_item['product_id']
-                quantity = order_item['quantity']
-                
-                if product_id not in product_totals:
-                    product_totals[product_id] = 0
-                product_totals[product_id] += quantity
-            
-            if not product_totals:
+            popular_products = self.db_client.get_popular_products(limit=10)        
+
+            if not popular_products:
                 print("\nBelum ada data pesanan.")
             else:
-                # Get product names and sort
-                product_list = []
-                for product_id, total in product_totals.items():
-                    product = next((p for p in self.data['products'] if p['product_id'] == product_id), None)
-                    if product:
-                        product_list.append({
-                            'name': product['product_name'],
-                            'total': total
-                        })
-                
-                product_list.sort(key=lambda x: x['total'], reverse=True)
-                
+                # # Get product names and sort
+                # product_list = []
+                # for product_id, total in product_list.items():
+                #     product = next((p for p in self.db_client['products'] if p['product_id'] == product_id), None)
+                #     if product:
+                #         product_list.append({
+                #             'name': product['product_name'],
+                #             'total': total
+                #         })
                 print("\n{:<5} {:<40} {:<15}".format("No", "Nama Produk", "Total Dipesan"))
                 print("-" * 60)
-                for idx, p in enumerate(product_list[:10], 1):
-                    print("{:<5} {:<40} {:<15}".format(idx, p['name'][:38], p['total']))
+                
+                # popular_products.sort(key=lambda x: x['total'], reverse=True)
+                
+                # print("\n{:<5} {:<40} {:<15}".format("No", "Nama Produk", "Total Dipesan"))
+                # print("-" * 60)
+                # for idx, p in enumerate(product_list[:10], 1):
+                #     print("{:<5} {:<40} {:<15}".format(idx, p['name'][:38], p['total']))
+                for idx, p in enumerate(popular_products, 1):
+                    print("{:<5} {:<40} {:<15}".format(
+                        idx, 
+                        p['product_name'][:38], # Menggunakan kunci dari DB
+                        p['total_ordered']))    # Menggunakan kunci dari DB
             
             input("\nTekan Enter untuk kembali")
             
@@ -680,12 +656,12 @@ class AdminView:
         print("=" * 50)
         
         try:
-            low_stock = [
-                ing for ing in self.data['ingredients'] 
-                if ing['stock'] <= ing['minimum_stock']
-            ]
+            # low_stock = [
+            #     ing for ing in self.data['ingredients'] 
+            #     if ing['stock'] <= ing['minimum_stock']
+            # ]
             
-            low_stock.sort(key=lambda x: x['stock'])
+            low_stock = self.db_client.get_low_stock_ingredients()            
             
             if not low_stock:
                 print("\nSemua stok bahan baku aman!")

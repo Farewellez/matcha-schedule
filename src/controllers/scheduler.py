@@ -105,7 +105,7 @@ class ProductionScheduler:
         ✅ [TODO 4] Menarik order baru dari DB dan memasukkannya ke Queue.
         Order yang ditarik adalah yang statusnya 'Menunggu Konfirmasi'.
         """
-        print("Mencari Order Baru dari Database...")
+        # print("Mencari Order Baru dari Database...")
         
         # Panggil DatabaseClient untuk mendapatkan data mentah (tuple list)
         new_orders_raw = self.db_client.fetch_new_orders()
@@ -167,7 +167,7 @@ class ProductionScheduler:
                     # Panggil start_production dan LEWATKAN self.db_client!
                     # Start production akan memanggil DB Client untuk update status order
                     machine.start_production(next_order, duration, self.db_client)
-        print("-" * 30)
+        # print("-" * 30)
 
     def start_polling(self, interval_seconds: int = SCHEDULER_POLLING_INTERVAL):
         """Memulai loop simulasi yang berjalan terus menerus."""

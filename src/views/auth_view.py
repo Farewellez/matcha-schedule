@@ -37,11 +37,8 @@ class AuthView:
                 return False
                 
             fullname = input("Nama Lengkap: ").strip()
-            if not fullname:
-                print("Nama lengkap tidak boleh kosong!")
-                input("Tekan Enter untuk kembali")
-                return False
-                
+            # ... (Validasi fullname, phone, email, password) ...
+            
             phone = input("No. Telepon: ").strip()
             if not phone:
                 print("No. telepon tidak boleh kosong!")
@@ -66,36 +63,41 @@ class AuthView:
                 input("Tekan Enter untuk kembali")
                 return False
             
-            # Check if username or email already exists
-            for customer in self.data['customers']:
-                if customer['username'] == username or customer['email'] == email:
-                    print("Username atau email sudah terdaftar!")
-                    input("Tekan Enter untuk kembali")
-                    return False
+            # --- START: PERUBAHAN UNTUK MENGGUNAKAN DATABASE CLIENT (self.data) ---
             
-            # Generate new customer ID
-            new_id = max([c['customer_id'] for c in self.data['customers']], default=0) + 1
+            # 1. Check if username or email already exists
+            # self.data adalah DatabaseClient. Kita asumsikan ada metode 'check_user_exists'
+            if self.data.check_user_exists(username, email):
+                print("Username atau email sudah terdaftar!")
+                input("Tekan Enter untuk kembali")
+                return False
             
-            # Add new customer
+            # 2. Add new customer
             hashed_password = self.hash_password(password)
-            new_customer = {
-                'customer_id': new_id,
-                'role_id': 2,
-                'username': username,
-                'fullname': fullname,
-                'phone': phone,
-                'email': email,
-                'password': hashed_password
-            }
             
-            self.data['customers'].append(new_customer)
+            # Kita panggil metode DB untuk menyimpan data dan mendapatkan ID baru
+            customer_id = self.data.register_new_customer(
+                username=username,
+                fullname=fullname,
+                phone=phone,
+                email=email,
+                hashed_password=hashed_password
+            )
             
-            print("\nRegistrasi berhasil!")
-            print(f"Selamat datang, {fullname}!")
-            input("\nTekan Enter untuk login")
-            return True
+            if customer_id:
+                print("\nRegistrasi berhasil!")
+                print(f"Selamat datang, {fullname}!")
+                input("\nTekan Enter untuk login")
+                return True
+            else:
+                print("\nRegistrasi gagal karena masalah database!")
+                input("Tekan Enter untuk kembali")
+                return False
+
+            # --- END: PERUBAHAN ---
             
         except Exception as e:
+            # Karena kode lama menggunakan try/except yang luas, kita pertahankan
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
             return False
@@ -117,24 +119,30 @@ class AuthView:
             
             hashed_password = self.hash_password(password)
             
-            # Find customer
-            for customer in self.data['customers']:
-                if customer['username'] == username and customer['password'] == hashed_password:
-                    print(f"\nLogin berhasil!")
-                    print(f"Selamat datang, {customer['fullname']}!")
-                    input("\nTekan Enter untuk melanjutkan")
-                    return {
-                        'customer_id': customer['customer_id'],
-                        'username': customer['username'],
-                        'fullname': customer['fullname'],
-                        'email': customer['email']
-                    }
+            # --- START: PERUBAHAN UNTUK MENGGUNAKAN DATABASE CLIENT (self.data) ---
             
-            print("Username atau password salah!")
-            input("Tekan Enter untuk kembali")
-            return None
+            # 1. Find customer (Ganti loop dengan pemanggilan metode DB)
+            # self.data adalah DatabaseClient. Kita asumsikan ada metode 'authenticate_customer'
+            customer_data = self.data.authenticate_customer(username, hashed_password)
+            
+            if customer_data:
+                # Login berhasil, customer_data berisi data dari DB
+                print(f"\nLogin berhasil!")
+                print(f"Selamat datang, {customer_data['fullname']}!")
+                input("\nTekan Enter untuk melanjutkan")
+                
+                # Mengembalikan data yang diterima dari DatabaseClient
+                return customer_data 
+            else:
+                # Login gagal
+                print("Username atau password salah!")
+                input("Tekan Enter untuk kembali")
+                return None
+
+            # --- END: PERUBAHAN ---
                 
         except Exception as e:
+            # Karena kode lama menggunakan try/except yang luas, kita pertahankan
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
             return None
@@ -156,21 +164,27 @@ class AuthView:
             
             hashed_password = self.hash_password(password)
             
-            # Find admin
-            for admin in self.data['admins']:
-                if admin['username'] == username and admin['password'] == hashed_password:
-                    print(f"\nLogin berhasil!")
-                    print(f"Selamat datang, Admin {admin['username']}!")
-                    input("\nTekan Enter untuk melanjutkan")
-                    return {
-                        'admin_id': admin['admin_id'],
-                        'username': admin['username'],
-                        'email': admin['email']
-                    }
+            # --- START: PERUBAHAN UNTUK MENGGUNAKAN DATABASE CLIENT (self.data) ---
             
-            print("Username atau password salah!")
-            input("Tekan Enter untuk kembali")
-            return None
+            # 1. Find admin (Ganti loop dengan pemanggilan metode DB)
+            # self.data adalah DatabaseClient. Kita asumsikan ada metode 'authenticate_admin'
+            admin_data = self.data.authenticate_admin(username, hashed_password)
+            
+            if admin_data:
+                # Login berhasil, admin_data berisi data dari DB
+                print(f"\nLogin berhasil!")
+                print(f"Selamat datang, Admin {admin_data['username']}!")
+                input("\nTekan Enter untuk melanjutkan")
+                
+                # Mengembalikan data yang diterima dari DatabaseClient
+                return admin_data 
+            else:
+                # Login gagal
+                print("Username atau password salah!")
+                input("Tekan Enter untuk kembali")
+                return None
+
+            # --- END: PERUBAHAN ---
                 
         except Exception as e:
             print(f"Error: {e}")
