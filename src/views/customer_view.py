@@ -32,11 +32,7 @@ class CustomerView:
         print("=" * 50)
         
         try:
-            products_raw = self.db_client.fetch_all_products()
-            products = [
-                {'product_id': r[0], 'product_name': r[1], 'description': r[2], 'price': r[3]}
-                for r in products_raw
-            ]
+            products= self.db_client.fetch_all_products()
 
             if not products:
                 print("\nBelum ada produk tersedia.")
@@ -205,9 +201,9 @@ class CustomerView:
                 print("\n{:<8} {:<20} {:<15} {:<25}".format("ID", "Tanggal", "Total", "Status"))
                 print("-" * 70)
                 for o in my_orders:
-                    timestamp = o['order_timestamp'].strftime("%d-%m-%Y %H:%M")
+                    timestamp = o[1].strftime("%d-%m-%Y %H:%M")
                     print("{:<8} {:<20} Rp {:>12,} {:<25}".format(
-                        o['order_id'], timestamp, o['total_price'], o['status']))
+                        o[0], timestamp, o[2], o[3]))
             
             input("\nTekan Enter untuk kembali")
             

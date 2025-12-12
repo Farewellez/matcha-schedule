@@ -44,12 +44,12 @@ class ProductionMachine:
             if new_id is None:
                 # Jika transaksi gagal, kembalikan status mesin dan log
                 self.status = MachineStatus.IDLE 
-                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 🛑 [MESIN {self.machine_id}] Gagal mencatat produksi Order ID {order.order_id} ke DB. Dibatalkan.")
+                # print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] 🛑 [MESIN {self.machine_id}] Gagal mencatat produksi Order ID {order.order_id} ke DB. Dibatalkan.")
                 return False
 
             self.production_batch_id = new_id # Simpan ID batch yang baru dikembalikan DB
             
-            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] [MESIN {self.machine_id}] Mulai produksi Order ID {order.order_id}. Est. Selesai: {self.estimated_finish_time.strftime('%H:%M:%S')}")
+            # print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] [MESIN {self.machine_id}] Mulai produksi Order ID {order.order_id}. Est. Selesai: {self.estimated_finish_time.strftime('%H:%M:%S')}")
             return True
         return False
     
@@ -82,9 +82,11 @@ class ProductionMachine:
             # stock_controller.adjust_stock_after_production(finished_order)
             
             if success:
-                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] ✅ [MESIN {self.machine_id}] Order ID {finished_order.order_id} SELESAI diproduksi dan DB diupdate.")
+                # print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] ✅ [MESIN {self.machine_id}] Order ID {finished_order.order_id} SELESAI diproduksi dan DB diupdate.")
+                pass
             else:
-                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] ⚠️ [MESIN {self.machine_id}] Order ID {finished_order.order_id} SELESAI, TAPI GAGAL update di DB. Perlu pengecekan!")
+                pass
+                # print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] ⚠️ [MESIN {self.machine_id}] Order ID {finished_order.order_id} SELESAI, TAPI GAGAL update di DB. Perlu pengecekan!")
 
             return finished_order
         return None
@@ -96,8 +98,7 @@ class ProductionScheduler:
         self.db_client = DatabaseClient()
         
 
-        # ✅ TODO 3: Inisialisasi DatabaseClient dan StockController di sini
-        from src.controllers.stock_controller import StockController # Tambah import ini
+        from src.controllers.stock_controller import StockController 
         self.stock_controller = StockController(self.db_client, self.queue)
     
     def _fetch_new_orders_from_db(self):
@@ -132,10 +133,11 @@ class ProductionScheduler:
             newly_added_count += 1
             
         if newly_added_count > 0:
-            print(f"✅ {newly_added_count} order baru telah ditambahkan ke antrian.")
+            # print(f"✅ {newly_added_count} order baru telah ditambahkan ke antrian.")
+            pass
 
     def estimate_production_duration(self, order: Order) -> float:
-        return order.total_quantity * 1.0
+        return 0.1
     
     def run_scheduling_cycle(self):
         """Logika utama yang dijalankan setiap interval."""

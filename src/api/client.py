@@ -77,6 +77,19 @@ class DatabaseClient:
                 print(f"❌ Gagal mengambil produk: {e}")
                 return []
 
+    def force_order_status(self, order_id: int, new_status_id: int) -> bool:
+        """Mengubah status order secara paksa untuk keperluan testing/admin."""
+        query = "UPDATE orders SET status_id = %s WHERE order_id = %s;"
+        try:
+            self.cursor.execute(query, (new_status_id, order_id))
+            self.conn.commit()
+            # Cek apakah ada baris yang benar-benar terupdate
+            return self.cursor.rowcount > 0 
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (force_order_status): {e}")
+            return False
+
     def fetch_new_orders(self) -> List[Tuple]:
         """
         Mengambil pesanan yang statusnya 'Diproses' (status_id=2) dan siap dijadwalkan.
@@ -429,21 +442,46 @@ class DatabaseClient:
             print(f"❌ DB Error (authenticate_admin): {e}")
             return None
 
-    def add_new_product(self, name: str, description: str, price: int) -> int | None:
-        """Menyimpan produk baru ke tabel product dan mengembalikan ID-nya."""
-        query = """
+    # Ganti definisi fungsi: tambahkan parameter 'recipe'
+    def add_new_product_with_recipe(self, name: str, description: str, price: int, recipe: List[Tuple[int, int]]) -> Optional[int]:
+        """
+        Menyimpan produk baru ke tabel product dan resepnya ke product_ingredients dalam satu transaksi.
+        Recipe: List of (ingredient_id, quantity).
+        """
+        
+        # 1. Query untuk INSERT Produk
+        product_query = """
             INSERT INTO product (product_name, description, price)
             VALUES (%s, %s, %s)
             RETURNING product_id;
         """
+        
+        # 2. Query untuk INSERT Resep
+        recipe_query = """
+            INSERT INTO product_ingredients (product_id, ingredient_id, quantity_per_unit)
+            VALUES (%s, %s, %s);
+        """
+        
         try:
-            self.cursor.execute(query, (name, description, price))
+            # --- Langkah 1: INSERT Produk dan Ambil ID ---
+            # Ini adalah tempat potensi kegagalan pertama (misal: koneksi putus)
+            self.cursor.execute(product_query, (name, description, price))
             new_product_id = self.cursor.fetchone()[0]
+            
+            # --- Langkah 2: LOOP dan INSERT Resep ---
+            # Ini adalah tempat potensi kegagalan kedua (misal: Foreign Key Constraint violation)
+            for ing_id, quantity in recipe:
+                self.cursor.execute(recipe_query, (new_product_id, ing_id, quantity))
+            
+            # --- Langkah 3: COMMIT Transaksi Penuh ---
             self.conn.commit()
             return new_product_id
+            
         except psycopg2.Error as e:
+            # --- Langkah 4: ROLLBACK Jika Terjadi Error ---
+            # Jika terjadi error di Langkah 1 atau 2, ROLLBACK akan membatalkan semua perubahan.
             self.conn.rollback()
-            print(f"❌ DB Error (add_new_product): Gagal menambahkan produk. {e}")
+            print(f"❌ DB Error (add_new_product_with_recipe): Transaksi GAGAL. Detail: {e}")
             return None
 
     def get_product_by_id(self, product_id: int) -> dict | None:
@@ -715,92 +753,84 @@ class DatabaseClient:
             print(f"❌ DB Error (get_low_stock_ingredients): {e}")
             return []
 
-    # Tambahkan ini ke src/api/client.py di kelas DatabaseClient
-
-from datetime import datetime
-import psycopg2 
-
-def create_order_transaction(self, customer_id: int, total_price: int, total_quantity: int, deadline: datetime, order_items: list) -> int | None:
-    """
-    Membuat pesanan baru, item pesanan, dan mengurangi stok bahan baku
-    dalam satu transaksi database.
-    """
-    try:
-        # Mulai Transaksi
-        self.conn.autocommit = False 
-
-        # 1. SISIPKAN KE TABEL ORDERS
-        order_query = """
-            INSERT INTO orders (customer_id, total_price, total_quantity, order_date, deadline, status_id)
-            VALUES (%s, %s, %s, NOW(), %s, 1)  -- status_id=1 (Pending)
-            RETURNING order_id;
+    def adjust_ingredient_stock(self, ingredient_id: int, change_amount: int) -> bool:
         """
-        self.cursor.execute(order_query, (customer_id, total_price, total_quantity, deadline))
-        order_id = self.cursor.fetchone()[0]
+        Mengupdate stok bahan baku dengan menambahkan/mengurangi 'change_amount' 
+        dari stok saat ini menggunakan UPDATE query.
+        """
+        # Kita menggunakan operator +/-, yang secara atomik menambahkan nilai.
+        query = """
+            UPDATE ingredient
+            SET stock = stock + %s
+            WHERE ingredient_id = %s;
+        """
+        try:
+            self.cursor.execute(query, (change_amount, ingredient_id))
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        except psycopg2.Error as e:
+            self.conn.rollback()
+            print(f"❌ DB Error (adjust_ingredient_stock): Gagal mengubah stok. {e}")
+            return False
+
+    # Di dalam class DatabaseClient di client.py:
+
+    def deduct_ingredients_for_order(self, order_id: int) -> bool:
+        """
+        Menghitung total bahan baku yang terpakai untuk Order tertentu 
+        dan mengurangi stok yang sesuai secara transaksional.
+        """
+        # Query: Hitung total bahan baku yang dibutuhkan untuk seluruh Order (menggunakan JOIN dan SUM)
+        # Note: Kita menggunakan SELECT INTO TEMP TABLE atau CTE (Common Table Expression) 
+        # untuk memastikan perhitungan total dilakukan hanya sekali dan digunakan 
+        # untuk UPDATE berikutnya. Namun, untuk kesederhanaan, kita akan menggunakan
+        # CTE untuk menghitung total kebutuhan:
         
-        # 2. SISIPKAN KE TABEL ORDER_ITEM & VERIFIKASI STOK
-        for item in order_items:
-            product_id = item['product_id']
-            quantity = item['quantity']
-            
-            # A. Sisipkan Order Item
-            item_query = """
-                INSERT INTO order_item (order_id, product_id, quantity, subtotal)
-                VALUES (%s, %s, %s, %s);
-            """
-            self.cursor.execute(item_query, (order_id, product_id, quantity, item['subtotal']))
-
-            # B. Ambil Daftar Bahan Baku (Product_Ingredients)
-            # Query ini mengambil bahan baku apa saja yang dibutuhkan produk ini.
-            ing_query = """
-                SELECT ingredient_id, quantity_needed 
-                FROM product_ingredients 
-                WHERE product_id = %s;
-            """
-            self.cursor.execute(ing_query, (product_id,))
-            required_ingredients = self.cursor.fetchall()
-            
-            for ing_id, needed_per_unit in required_ingredients:
-                total_needed = needed_per_unit * quantity
-                
-                # C. Verifikasi Stok Saat Ini
-                stock_check_query = """
-                    SELECT ingredient_name, stock FROM ingredient WHERE ingredient_id = %s FOR UPDATE;
-                """
-                # FOR UPDATE mengunci baris stok agar tidak diubah oleh transaksi lain
-                self.cursor.execute(stock_check_query, (ing_id,))
-                result = self.cursor.fetchone()
-                
-                if not result:
-                    raise Exception(f"Bahan Baku ID {ing_id} tidak ditemukan.")
-                
-                ing_name, current_stock = result
-                
-                if current_stock < total_needed:
-                    raise Exception(f"Stok bahan '{ing_name}' tidak mencukupi. Tersedia: {current_stock}, Dibutuhkan: {total_needed}")
-
-                # D. Kurangi Stok
-                stock_update_query = """
-                    UPDATE ingredient SET stock = stock - %s WHERE ingredient_id = %s;
-                """
-                self.cursor.execute(stock_update_query, (total_needed, ing_id))
+        deduction_query = """
+        WITH ingredients_needed AS (
+            SELECT
+                t2.ingredient_id,
+                -- PERBAIKAN: Ganti t2.quantity menjadi t2.quantity_per_unit
+                SUM(t1.quantity * t2.quantity_per_unit) AS total_deduction_amount 
+            FROM
+                order_item t1 -- Ini sudah kita perbaiki dari order_items
+            JOIN
+                product_ingredients t2 ON t1.product_id = t2.product_id
+            WHERE
+                t1.order_id = %s
+            GROUP BY
+                t2.ingredient_id
+        )
+        -- UPDATE semua stok bahan baku yang terdaftar di ingredients_needed
+        UPDATE ingredient
+        SET stock = ingredient.stock - ineeded.total_deduction_amount
+        FROM ingredients_needed AS ineeded
+        WHERE ingredient.ingredient_id = ineeded.ingredient_id
+        RETURNING ingredient.ingredient_id;
+        """
         
-        # 3. Commit Transaksi jika semua berhasil
-        self.conn.commit()
-        self.conn.autocommit = True
-        return order_id
-
-    except Exception as e:
-        # Rollback jika ada error (stok tidak cukup, DB error, dll.)
-        self.conn.rollback()
-        self.conn.autocommit = True
-        print(f"❌ Transaksi Gagal (create_order_transaction): {e}")
-        return None
-    except psycopg2.Error as db_e:
-        self.conn.rollback()
-        self.conn.autocommit = True
-        print(f"❌ DB Error (create_order_transaction): {db_e}")
-        return None
+        try:
+            # 1. Jalankan query pengurangan stok
+            self.cursor.execute(deduction_query, (order_id,))
+            
+            # 2. Cek apakah ada baris yang terupdate
+            if self.cursor.rowcount == 0:
+                print(f"⚠️ CLIENT DB: Tidak ada stok bahan baku yang dikurangi untuk Order ID {order_id}. Order mungkin kosong atau resep tidak ditemukan.")
+                self.conn.rollback() # Amankan transaksi
+                return False
+                
+            # 3. Commit transaksi agar perubahan stok permanen
+            self.conn.commit()
+            return True
+        
+        except psycopg2.Error as e:
+            self.conn.rollback() # JIKA GAGAL, KEMBALIKAN SEMUA PERUBAHAN
+            print(f"❌ DB Error (deduct_ingredients_for_order): Gagal mengurangi stok! {e}")
+            return False
+        except Exception as e:
+            self.conn.rollback()
+            print(f"❌ Error tak terduga saat mengurangi stok: {e}")
+            return False
 
     def __del__(self):
         self.close()

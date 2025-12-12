@@ -1,5 +1,4 @@
 # src/models/order.py
-from src.config import W_QUANTITY, W_DEADLINE, STOCK_BONUS
 
 # ini buat OrderItem class
 from dataclasses import dataclass
@@ -36,18 +35,21 @@ class Order:
     priority_score: float = 0.0
     items: List[OrderItem] = field(default_factory=list) 
 
-
-    # def __post_init__(self):
-    #     self.total_quantity = sum(item.quantity for item in self.items) # belum paham
-    
-    def calculate_priority_score(self, current_stock_alert: bool = False):
-        time_remaining_seconds = (self.deadline - datetime.datetime.now()).total_seconds()
-        # time_to_deadline = (self.deadline - datetime.datetime.now()).total_seconds()
+    def calculate_priority_score(self, W_DEADLINE: float, W_QUANTITY: float, STOCK_BONUS: float, current_stock_alert: bool = False):
+        from datetime import datetime
+        
+        time_remaining_seconds = (self.deadline - datetime.now()).total_seconds()
+        
+        # 2. Faktor Waktu (Invers dari waktu tersisa)
+        # Menggunakan max(1.0, time_remaining_seconds) untuk menghindari pembagian nol dan lonjakan skor saat waktu sangat mepet
         time_factor = 1.0 / max(1.0, time_remaining_seconds)
+        
         score_deadline = W_DEADLINE * time_factor
         score_quantity = W_QUANTITY * self.total_quantity
         score_stock = STOCK_BONUS if current_stock_alert else 0
+        
         self.priority_score = score_deadline + score_quantity + score_stock
+        # print(f"DEBUG: Order ID {self.order_id} Score: {self.priority_score:.2f} (Deadline: {score_deadline:.2f}, Qty: {score_quantity:.2f})")
 
     def __lt__(self, other):
         return self.priority_score < other.priority_score

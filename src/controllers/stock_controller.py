@@ -26,39 +26,34 @@ class StockController:
         low_stock_items = self.db_client.fetch_low_stock_items(self.LOW_STOCK_THRESHOLD)
         
         if not low_stock_items:
+            self.queue.recalculate_all_priorities(current_stock_alert=False) # Pastikan semua order di-reset ke base score
             # print("Semua stok di atas ambang batas. Tidak ada perubahan prioritas.")
             return
 
-        print(f"⚠️ Stok rendah terdeteksi pada item: {', '.join(low_stock_items)}")
-        
-        # 2. Tingkatkan prioritas order yang membutuhkan item tersebut
-        boost_count = self.queue.boost_priority_by_items(low_stock_items, self.PRIORITY_BOOST_SCORE)
-        
+        self.queue.recalculate_all_priorities(current_stock_alert=True) # <-- PANGGILAN YANG BENAR
+        boost_count = len(self.queue._order_map) # Asumsi semua order di-recalculate dengan alert        
         if boost_count > 0:
-            print(f"⬆️ Prioritas {boost_count} order telah ditingkatkan karena kekurangan stok.")
+            # print(f"⬆️ Prioritas {boost_count} order telah ditingkatkan karena kekurangan stok.")
+            pass
             
-    # --- Mendukung TODO 2: Logika Pengurangan Stok ---
-    
     def adjust_stock_after_production(self, finished_order: Order):
         """
-        Mengurangi stok bahan baku setelah suatu Order selesai diproduksi.
-        Ini dipanggil oleh Scheduler setelah check_finish().
+        Mengurangi stok bahan baku setelah suatu Order selesai diproduksi
+        berdasarkan resep nyata (product_ingredients).
         """
-        # ASUMSI: Kita tahu resep (bahan baku yang dibutuhkan) untuk Order ini.
-        # Untuk penyederhanaan, kita asumsikan semua produk menggunakan 'Matcha Powder'
-        # dan 'Susu' berdasarkan total_quantity.
         
-        quantity = finished_order.total_quantity
+        # 1. AMBIL DETAIL RESEP DARI DATABASE
+        # Kita butuh fungsi baru di client.py: fetch_ingredients_for_order(order_id)
+        # Fungsi ini akan mengembalikan list of tuples: [(ing_id, quantity_used), ...]
         
-        # 1. Hitung Pengurangan (Contoh sederhana)
-        required_matcha = quantity * 10 # Misalnya 10g per unit
-        required_milk = quantity * 20  # Misalnya 20ml per unit
-        
-        # 2. Panggil DatabaseClient untuk mengurangi stok (ini juga harus transaksional)
-        self.db_client.adjust_inventory_transaction(
-            item_changes=[
-                ("Matcha Powder", required_matcha),
-                ("Susu", required_milk)
-            ]
-        )
-        print(f"⬇️ Stok dikurangi untuk Order ID {finished_order.order_id}. Total {quantity} unit.")
+        try:
+            is_deducted = self.db_client.deduct_ingredients_for_order(finished_order.order_id)
+            
+            if is_deducted:
+                #  print(f"✅ STOCK: Stok berhasil dikurangi untuk Order ID {finished_order.order_id}.")
+                pass
+            else:
+                 print(f"❌ STOCK: GAGAL mengurangi stok untuk Order ID {finished_order.order_id}. Cek DB Error.")
+
+        except Exception as e:
+            print(f"❌ STOCK CONTROLLER ERROR: Gagal memproses pengurangan stok untuk Order ID {finished_order.order_id}. Error: {e}")

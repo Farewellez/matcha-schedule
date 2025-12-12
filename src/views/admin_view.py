@@ -75,7 +75,26 @@ class AdminView:
         except Exception as e:
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
-    
+
+    def _display_products_list(self): 
+        # Salin semua logika tampilan produk dari view_products di sini
+
+        # PASTIKAN HANYA ADA LOGIKA TAMPILAN, TIDAK ADA INPUT()s
+        try:
+            products = self.db_client.fetch_all_products()
+            if products:
+                print("\n" + "=" * 50)
+                print("DAFTAR PRODUK YANG SUDAH ADA:")
+                print("{:<5} {:<30} {:<15}".format("ID", "Nama Produk", "Harga"))
+                print("-" * 50)
+                for p in products:
+                    print("{:<5} {:<30} Rp {:>12,}".format(p['product_id'], p['product_name'][:28], p['price']))
+                print("-" * 50)
+        
+        except Exception as e:
+            # Jika ada error, cukup tampilkan error tanpa input jeda
+            print(f"Error saat menampilkan daftar produk: {e}")
+        
     def add_product(self):
         self.clear_screen()
         print("=" * 50)
@@ -83,6 +102,26 @@ class AdminView:
         print("=" * 50)
         
         try:
+            # --- SARAN TIM TESTING 1: TAMPILKAN PRODUK YANG ADA ---
+            self._display_products_list() # Re-use fungsi yang sudah ada (atau tampilkan secara ringkas)
+            print("\n" + "=" * 50)
+
+            # --- SARAN TIM TESTING 2: TAMPILKAN BAHAN BAKU (ID, NAMA, UNIT, STOK) ---
+            print("DAFTAR BAHAN BAKU (untuk resep):")
+            ingredients = self.db_client.fetch_all_ingredients()
+            if ingredients:
+                print("\n{:<5} {:<30} {:<10} {:<10}".format("ID", "Nama Bahan", "Unit", "Stok"))
+                print("-" * 55)
+                for ing in ingredients:
+                    print("{:<5} {:<30} {:<10} {:<10}".format(
+                        ing['ingredient_id'], ing['ingredient_name'][:28], 
+                        ing['unit'], ing['stock']))
+                print("-" * 55)
+            else:
+                print("❌ Belum ada Bahan Baku. Harap tambah di Kelola Bahan Baku terlebih dahulu!")
+                input("Tekan Enter untuk kembali")
+                return # Tidak bisa lanjut jika tidak ada bahan baku
+            
             name = input("\nNama Produk: ").strip()
             if not name:
                 print("Nama produk tidak boleh kosong!")
@@ -107,11 +146,57 @@ class AdminView:
                 input("Tekan Enter untuk kembali...")
                 return
             
-            new_id = self.db_client.add_new_product(name, description, price)
+            # --- INPUT RESEP ---
+            print("\n" + "=" * 50)
+            print("INPUT RESEP (Bahan Baku & Kuantitas)")
+            print("Tekan Enter di ID Bahan jika sudah selesai.")
+
+            recipe = [] # List untuk menyimpan pasangan (ingredient_id, quantity)
+            while True:
+                ing_id_input = input(f"Masukkan ID Bahan ke-{len(recipe) + 1}: ").strip()
+                
+                if not ing_id_input:
+                    break # Keluar dari loop input resep
+                    
+                try:
+                    ing_id = int(ing_id_input)
+                    
+                    # Cek keberadaan bahan baku
+                    ingredient = self.db_client.get_ingredient_by_id(ing_id)
+                    if not ingredient:
+                        print("❌ ID Bahan Baku tidak ditemukan! Cek daftar di atas.")
+                        continue # Lanjut ke input ID berikutnya
+                        
+                    print(f"Bahan: {ingredient['ingredient_name']} ({ingredient['unit']})")
+                    
+                    quantity_input = input(f"Kuantitas ({ingredient['unit']}): ").strip()
+                    quantity = int(quantity_input)
+                    
+                    if quantity <= 0:
+                        print("Kuantitas harus positif!")
+                        continue
+                        
+                    # Simpan resep
+                    recipe.append((ing_id, quantity))
+                    
+                except ValueError:
+                    print("Input harus berupa angka!")
+                    continue
+                except Exception as e:
+                    print(f"Error saat input resep: {e}")
+                    continue
+            
+            if not recipe:
+                print("⚠️ Produk tidak memiliki resep. Pembatalan penambahan produk.")
+                input("Tekan Enter untuk kembali...")
+                return
+            
+            new_id = self.db_client.add_new_product_with_recipe(name, description, price, recipe) 
             
             if new_id:
                 print("\nProduk berhasil ditambahkan!")
                 print(f"ID Produk Baru: {new_id}")
+                # Logika Tampilan Resep yang baru ditambahkan (Opsional)
             else:
                 print("\nProduk GAGAL ditambahkan! Cek error database.")
 
@@ -127,6 +212,9 @@ class AdminView:
         print("EDIT PRODUK")
         print("=" * 50)
         
+        self._display_products_list()
+        self._display_ingredients_list()
+
         try:
             product_id = input("\nMasukkan ID Produk: ").strip()
             try:
@@ -188,6 +276,9 @@ class AdminView:
         print("HAPUS PRODUK")
         print("=" * 50)
         
+        self._display_products_list()
+        self._display_ingredients_list()
+
         try:
             product_id = input("\nMasukkan ID Produk: ").strip()
             try:
@@ -286,6 +377,8 @@ class AdminView:
         print("TAMBAH BAHAN BAKU")
         print("=" * 50)
         
+        self._display_ingredients_list()
+
         try:
             name = input("\nNama Bahan: ").strip()
             if not name:
@@ -380,11 +473,34 @@ class AdminView:
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
     
+    def _display_ingredients_list(self): 
+        """Menampilkan daftar ID, Nama, Stok, dan Min. Stok Bahan Baku tanpa jeda input."""
+        try:
+            ingredients = self.db_client.fetch_all_ingredients()
+
+            if ingredients:
+                print("\n" + "=" * 50)
+                print("DAFTAR BAHAN BAKU SAAT INI (ID diperlukan untuk edit):")
+                print("{:<5} {:<30} {:<10} {:<10}".format("ID", "Nama Bahan", "Stok", "Min. Stok"))
+                print("-" * 55)
+                for ing in ingredients:
+                    print("{:<5} {:<30} {:<10} {:<10}".format(
+                        ing['ingredient_id'], ing['ingredient_name'][:28], 
+                        ing['stock'], ing['minimum_stock']))
+                print("-" * 55)
+            else:
+                print("Belum ada bahan baku.")
+
+        except Exception as e:
+            print(f"Error saat menampilkan daftar bahan baku: {e}")
+
     def edit_ingredient(self):
         self.clear_screen()
         print("=" * 50)
         print("EDIT BAHAN BAKU")
         print("=" * 50)
+
+        self._display_ingredients_list()
         
         try:
             ing_id = input("\nMasukkan ID Bahan: ").strip()
@@ -448,6 +564,8 @@ class AdminView:
         print("UPDATE STOK")
         print("=" * 50)
         
+        self._display_ingredients_list()
+
         try:
             ing_id = input("\nMasukkan ID Bahan: ").strip()
             try:
@@ -468,25 +586,34 @@ class AdminView:
             print(f"\nBahan: {ingredient['ingredient_name']}")
             print(f"Stok saat ini: {ingredient['stock']}")
             
-            new_stock = input("\nStok baru: ").strip()
+            change_amount_input = input("\nMasukkan Jumlah Penambahan/Pengurangan (e.g., 500 atau -760): ").strip()
+            if not change_amount_input:
+                print("Pembatalan update stok.")
+                input("Tekan Enter untuk kembali")
+                return
+            
             try:
-                new_stock = int(new_stock)
-                if new_stock < 0:
-                    print("Stok tidak boleh negatif!")
+                change_amount = int(change_amount_input) 
+        
+                 # HITUNG STOK AKHIR: Stok Lama + Perubahan
+                final_stock = ingredient['stock'] + change_amount
+        
+                if final_stock < 0:
+                    print("Stok tidak boleh negatif! (Stok saat ini:", ingredient['stock'], ")")
                     input("Tekan Enter untuk kembali")
                     return
+                
+                is_updated = self.db_client.adjust_ingredient_stock(ing_id, change_amount)
+
+                if is_updated:
+                    print("\nStok berhasil diupdate!")
+                else:
+                    print("\nStok GAGAL diupdate. Cek error database.")
+                    
             except ValueError:
                 print("Stok harus berupa angka!")
                 input("Tekan Enter untuk kembali")
                 return
-            
-            is_updated = self.db_client.set_ingredient_stock(ing_id, new_stock)
-            
-            if is_updated:
-                print("\nStok berhasil diupdate!")
-                # Kita tidak perlu lagi menampilkan stok baru karena DB sudah melakukannya
-            else:
-                print("\nStok GAGAL diupdate. Cek error database.")
 
             input("Tekan Enter untuk kembali")
             
@@ -500,6 +627,8 @@ class AdminView:
         print("HAPUS BAHAN BAKU")
         print("=" * 50)
         
+        self._display_ingredients_list()
+
         try:
             ing_id = input("\nMasukkan ID Bahan: ").strip()
             try:
@@ -522,7 +651,7 @@ class AdminView:
             if confirm == 'y':
                 is_deleted = self.db_client.delete_ingredient_and_relations(ing_id)                
                 if is_deleted:
-                    print("\nBahan baku berhasil dihapus!")
+                    print("\nBahan baku dan semua relasi resep yang terkait berhasil dihapus!")
                 else:
                     print("\nBahan baku GAGAL dihapus! Cek database atau ID.")
             else:
