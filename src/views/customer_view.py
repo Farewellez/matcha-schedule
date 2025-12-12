@@ -62,11 +62,7 @@ class CustomerView:
         print("=" * 50)
         
         try:
-            products_raw = self.db_client.fetch_all_products() # Asumsi ini sudah ada di client.py
-            products = [
-                {'product_id': r[0], 'product_name': r[1], 'description': r[2], 'price': r[3]} 
-                for r in products_raw
-            ]
+            products = self.db_client.fetch_all_products()
             
             if not products:
                 print("\nBelum ada produk tersedia.")
@@ -191,7 +187,8 @@ class CustomerView:
 
         except Exception as e:
             print(e) 
-    
+            input("Tekan Enter untuk kembali")
+
     # ==================== LIHAT DAFTAR PESANAN ====================
     def view_orders(self):
         self.clear_screen()
@@ -200,16 +197,8 @@ class CustomerView:
         print("=" * 50)
         
         try:
+            my_orders = self.db_client.fetch_customer_orders(self.customer['customer_id'])
             
-            my_orders_raw = self.db_client.fetch_customer_orders(self.customer['customer_id'])
-            
-            # Konversi data mentah dari DB ke format tampilan dictionary/list.
-            # Asumsi: DB client mengembalikan status_name (JOIN status)
-            my_orders = [
-                {'order_id': r[0], 'order_timestamp': r[1], 'total_price': r[2], 'status': r[3]}
-                for r in my_orders_raw
-            ]
-
             if not my_orders:
                 print("\nBelum ada pesanan.")
             else:
