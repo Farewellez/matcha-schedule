@@ -32,7 +32,6 @@ class CustomerView:
         print("=" * 50)
         
         try:
-            # products = self.data['products']
             products_raw = self.db_client.fetch_all_products()
             products = [
                 {'product_id': r[0], 'product_name': r[1], 'description': r[2], 'price': r[3]}
@@ -190,8 +189,6 @@ class CustomerView:
             except Exception as e:
                 print(f"Error Database saat membuat pesanan: {e}")
 
-            # Generate new order ID
-            new_order_id = max([o['order_id'] for o in self.data['orders']], default=0) + 1
         except Exception as e:
             print(e) 
     
@@ -203,9 +200,6 @@ class CustomerView:
         print("=" * 50)
         
         try:
-            # Filter orders by customer
-            # my_orders = [o for o in self.data['orders'] if o['customer_id'] == self.customer['customer_id']]
-            # my_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
             
             my_orders_raw = self.db_client.fetch_customer_orders(self.customer['customer_id'])
             
@@ -333,13 +327,6 @@ class CustomerView:
             # --- Perbaikan 1: Ambil data dari DB ---
             order_data = self.db_client.fetch_order_details_by_id(order_id, self.customer['customer_id'])
 
-            # # Find order
-            # order = None
-            # for o in self.data['orders']:
-            #     if o['order_id'] == order_id and o['customer_id'] == self.customer['customer_id']:
-            #         order = o
-            #         break
-            
             if not order_data:
                 print("Order tidak ditemukan!")
                 input("Tekan Enter untuk kembali")
@@ -414,8 +401,6 @@ class CustomerView:
         try:
             # Get customer orders
             my_orders_raw = self.db_client.fetch_customer_orders(self.customer['customer_id'])
-            # my_orders = [o for o in self.data['orders'] if o['customer_id'] == self.customer['customer_id']]
-            # my_orders.sort(key=lambda x: x['order_timestamp'], reverse=True)
             my_orders = [
                 {'order_id': r[0], 'order_timestamp': r[1], 'total_price': r[2], 'status': r[3]}
                 for r in my_orders_raw
@@ -550,36 +535,6 @@ class CustomerView:
         except Exception as e:
             print(f"Error: {e}")
             input("Tekan Enter untuk kembali")
-
-            # Create new order
-            # new_order = {
-            #     'order_id': new_order_id,
-            #     'customer_id': self.customer['customer_id'],
-            #     'order_timestamp': datetime.now(),
-            #     'total_price': total_price,
-            #     'status': 'Menunggu Konfirmasi'
-            # }
-            
-            # self.data['orders'].append(new_order)
-            
-            # # Copy order items
-            # for item in items:
-            #     new_item_id = max([oi['order_item_id'] for oi in self.data['order_items']], default=0) + 1
-            #     new_order_item = {
-            #         'order_item_id': new_item_id,
-            #         'order_id': new_order_id,
-            #         'product_id': item['product_id'],
-            #         'quantity': item['quantity']
-            #     }
-            #     self.data['order_items'].append(new_order_item)
-            
-            # print(f"\nPesanan berhasil diulang! (Order ID: {new_order_id})")
-            # print("Silakan upload bukti pembayaran untuk konfirmasi.")
-            # input("\nTekan Enter untuk kembali")
-            
-        # except Exception as e:
-        #     print(f"Error: {e}")
-        #     input("Tekan Enter untuk kembali")
     
     def run(self):
         while True:

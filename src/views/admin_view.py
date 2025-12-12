@@ -58,7 +58,7 @@ class AdminView:
         print("=" * 50)
         
         try:
-            products = self.data['products']
+            products = self.db_client.fetch_all_products()
             
             if not products:
                 print("\nBelum ada produk.")
@@ -115,7 +115,6 @@ class AdminView:
             else:
                 print("\nProduk GAGAL ditambahkan! Cek error database.")
 
-            print("\nProduk berhasil ditambahkan!")
             input("Tekan Enter untuk kembali...")
             
         except Exception as e:

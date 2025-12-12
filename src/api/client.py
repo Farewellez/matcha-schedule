@@ -1,7 +1,7 @@
 # src/api/client.py
 
 import psycopg2
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from datetime import datetime
 from src.config import PGHOST, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE
 
@@ -55,15 +55,27 @@ class DatabaseClient:
             print(f"❌ Error saat melakukan commit. Rollback dilakukan. Error: {e}")
             raise
 
-    def fetch_all_products(self) -> List[Tuple]:
-        """Mengambil semua produk dari tabel product."""
-        query = "SELECT product_id, product_name, description, price FROM product;"
-        try:
-            self.cursor.execute(query)
-            return self.cursor.fetchall()
-        except psycopg2.Error as e:
-            print(f"❌ Gagal mengambil produk: {e}")
-            return []
+    def fetch_all_products(self) -> List[Dict]: # Ganti Tuple menjadi Dict di type hint
+            """Mengambil semua produk dari tabel product dan mengembalikannya sebagai List of Dictionaries."""
+            query = "SELECT product_id, product_name, description, price FROM product;"
+            try:
+                self.cursor.execute(query)
+                results = self.cursor.fetchall()
+                
+                # Mendapatkan nama kolom untuk digunakan sebagai kunci Dictionary
+                columns = [desc[0] for desc in self.cursor.description]
+                
+                # Mengonversi List of Tuples menjadi List of Dictionaries
+                products = []
+                for row in results:
+                    # Memastikan data dikembalikan dengan kunci 'product_id', 'product_name', dll.
+                    products.append(dict(zip(columns, row))) 
+                    
+                return products
+                
+            except psycopg2.Error as e:
+                print(f"❌ Gagal mengambil produk: {e}")
+                return []
 
     def fetch_new_orders(self) -> List[Tuple]:
         """
