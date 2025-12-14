@@ -1,34 +1,20 @@
-# src/main.py (REVISI)
-
-import sys
-import os
-import threading # Diperlukan untuk menjalankan Scheduler secara background
-import time # Diperlukan untuk sleep
+# src/main.py
+import threading
+import time
 from src.controllers.scheduler import ProductionScheduler
 from src.views.auth_view import AuthView
 from src.views.admin_view import AdminView
 from src.views.customer_view import CustomerView
-
-# --- Tambahan Import untuk Scheduler ---
-from .controllers.scheduler import ProductionScheduler
 from .config import SCHEDULER_POLLING_INTERVAL, PRODUCTION_MACHINE_COUNT
-# ----------------------------------------
-
-# Hapus fungsi hash_password jika sudah ada di AuthController/Utils
-# Hapus fungsi initialize_data() karena kita pakai DB!
 
 def main():
     print("\n" + "=" * 50)
     print("  🚀 SISTEM PRODUKSI MATCHA STARTING 🚀")
     print("=" * 50)
     
-    # --- INISIALISASI SCHEDULER & DB ---
-    # Scheduler diinisialisasi dan terhubung ke DB (TODO 3)
     try:
         scheduler = ProductionScheduler(num_machine=PRODUCTION_MACHINE_COUNT)
         
-        # 1. Jalankan Scheduler di Thread terpisah!
-        # Scheduler perlu berjalan terus menerus (loop) sementara menu interaktif berjalan.
         scheduler_thread = threading.Thread(
             target=scheduler.start_polling, 
             args=(SCHEDULER_POLLING_INTERVAL,),
@@ -79,9 +65,4 @@ def main():
         print("\nTerima kasih telah menggunakan sistem kami!\n")
 
 if __name__ == "__main__":
-    # scheduler = ProductionScheduler()
-    # # Penting: Tambahkan sys.path jika diperlukan untuk import di atas
-    # # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
-    # scheduler_thread = threading.Thread(target=scheduler.start_polling, daemon=True)
-    # scheduler_thread.start()
     main()
