@@ -114,22 +114,16 @@ class ProductionScheduler:
         return 0.1
     
     def run_scheduling_cycle(self):
-        
         self._fetch_new_orders_from_db()
-        # ✅ TODO 5: Panggil self.stock_controller.check_and_update_all_priorities()
         self.stock_controller.check_and_update_all_priorities()
 
-        # 2. Cek Mesin Selesai & Post-Production
         finished_orders = []
         for machine in self.machine:
-            # Panggil check_finish dan LEWATKAN self.db_client!
             finished_order = machine.check_finish(self.db_client) 
             if finished_order:
                 finished_orders.append(finished_order)
-                # Di sini StockController akan mengurangi bahan baku
                 self.stock_controller.adjust_stock_after_production(finished_order)
         
-        # --- FASE 3: Alokasikan Pekerjaan Baru (Mesin IDLE vs Queue) ---
         for machine in self.machine:
             if machine.status == MachineStatus.IDLE:
                 
@@ -137,13 +131,9 @@ class ProductionScheduler:
                 
                 if next_order:
                     duration = self.estimate_production_duration(next_order)
-                    
-                    # Panggil start_production dan LEWATKAN self.db_client!
-                    # Start production akan memanggil DB Client untuk update status order
                     machine.start_production(next_order, duration, self.db_client)
 
     def start_polling(self, interval_seconds: int = SCHEDULER_POLLING_INTERVAL):
-        """Memulai loop simulasi yang berjalan terus menerus."""
         print(f"--- Scheduler STARTED: Mengelola {len(self.machine)} Mesin. Interval: {interval_seconds}s ---")
         try:
             while True:
@@ -151,8 +141,7 @@ class ProductionScheduler:
                 time.sleep(interval_seconds)
         except KeyboardInterrupt:
             print("\nScheduler dihentikan.")
-            # ✅ TODO: Tambahkan logika cleanup/disconnect DB
             if self.db_client:
-                self.db_client.close() # Panggil metode close() yang sudah kita definisikan!
+                self.db_client.close()
             print("Koneksi DB ditutup dengan aman.")
             

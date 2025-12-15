@@ -35,8 +35,12 @@ class DatabaseClient:
             self.conn.close()
         print("Koneksi ditutup")
 
+    
     def _execute_query(self, query: str, params=None):
-        """Metode dasar untuk menjalankan query SELECT atau operasi non-transaksional."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal eksekusi query."
+            print(error_msg)
+            raise ConnectionError(error_msg)
         try:
             self.cursor.execute(query, params)
             return self.cursor
@@ -46,7 +50,10 @@ class DatabaseClient:
             raise
 
     def _commit(self):
-        """Melakukan commit untuk menyimpan perubahan di database."""
+        if self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+            print(error_msg)
+            raise ConnectionError(error_msg)    
         try:
             self.conn.commit()
             return True
@@ -55,20 +62,27 @@ class DatabaseClient:
             print(f"❌ Error saat melakukan commit. Rollback dilakukan. Error: {e}")
             raise
 
-    def fetch_all_products(self) -> List[Dict]: # Ganti Tuple menjadi Dict di type hint
-            """Mengambil semua produk dari tabel product dan mengembalikannya sebagai List of Dictionaries."""
+    def fetch_all_products(self) -> List[Dict]:
             query = "SELECT product_id, product_name, description, price FROM product;"
+            
+            if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+            
             try:
                 self.cursor.execute(query)
                 results = self.cursor.fetchall()
                 
-                # Mendapatkan nama kolom untuk digunakan sebagai kunci Dictionary
+                if self.cursor.description is None:
+                    # Jika tidak ada description, ini bukan hasil SELECT yang valid atau kursor error
+                    print("❌ Query berhasil, namun tidak ada deskripsi kolom yang ditemukan.")
+                    return []
+                
                 columns = [desc[0] for desc in self.cursor.description]
                 
-                # Mengonversi List of Tuples menjadi List of Dictionaries
                 products = []
                 for row in results:
-                    # Memastikan data dikembalikan dengan kunci 'product_id', 'product_name', dll.
                     products.append(dict(zip(columns, row))) 
                     
                 return products
@@ -80,6 +94,12 @@ class DatabaseClient:
     def force_order_status(self, order_id: int, new_status_id: int) -> bool:
         """Mengubah status order secara paksa untuk keperluan testing/admin."""
         query = "UPDATE orders SET status_id = %s WHERE order_id = %s;"
+        
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             self.cursor.execute(query, (new_status_id, order_id))
             self.conn.commit()
@@ -114,6 +134,12 @@ class DatabaseClient:
         ORDER BY 
             o.order_timestamp ASC;
         """
+        
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             self.cursor.execute(query)
             return self.cursor.fetchall()
@@ -138,6 +164,12 @@ class DatabaseClient:
             ORDER BY 
                 o.order_timestamp DESC;
         """
+
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             self.cursor.execute(query, (customer_id,))
             return self.cursor.fetchall()
@@ -151,6 +183,12 @@ class DatabaseClient:
             SELECT ingredient_name FROM ingredient 
             WHERE stock < %s;
         """
+
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             self.cursor.execute(query, (threshold,))
             # Mengambil list item_name (flattened list)
@@ -176,6 +214,12 @@ class DatabaseClient:
             ORDER BY 
                 o.order_timestamp DESC;
         """
+
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             self.cursor.execute(query, (customer_id,))
             return self.cursor.fetchall()
@@ -188,6 +232,12 @@ class DatabaseClient:
         Mengambil detail pesanan lengkap: Header dan Items.
         Menggunakan satu koneksi untuk efisiensi.
         """
+
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             # 1. Ambil Data Header Pesanan (Orders + Status)
             header_query = """
@@ -233,6 +283,12 @@ class DatabaseClient:
     def update_order_status(self, order_id: int, new_status_id: int) -> bool:
         """Mengupdate status_id pesanan berdasarkan order_id."""
         query = "UPDATE orders SET status_id = %s WHERE order_id = %s;"
+
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+
         try:
             self.cursor.execute(query, (new_status_id, order_id))
             self._commit()
@@ -247,15 +303,30 @@ class DatabaseClient:
         """Membuat pesanan baru dan item pesanan secara transaksional.
            Mengembalikan order_id yang baru dibuat."""
         
+        if self.cursor is None or self.conn is None:
+                error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal melakukan commit."
+                print(error_msg)
+                raise ConnectionError(error_msg)
+        
         try:
             # 1. INSERT ke tabel orders (Default status_id = 1 'Menunggu Konfirmasi')
             order_insert_query = """
                 INSERT INTO orders (customer_id, deadline, total_price, total_quantity, status_id)
                 VALUES (%s, %s, %s, %s, 1) RETURNING order_id;
             """
+            
             self.cursor.execute(order_insert_query, 
                                 (customer_id, deadline, total_price, total_quantity))
-            new_order_id = self.cursor.fetchone()[0] # Ambil ID yang baru dibuat
+            
+            fetched_result = self.cursor.fetchone()
+        
+            if fetched_result is None:
+                # Jika INSERT gagal mengembalikan ID, ini adalah kegagalan fatal.
+                print("❌ Transaction GAGAL: INSERT Order tidak mengembalikan Order ID.")
+                self.conn.rollback() 
+                return None
+            
+            new_order_id = fetched_result[0] # Ambil ID yang baru dibuat
 
             # 2. INSERT massal ke tabel order_item
             order_item_insert_query = """
@@ -283,6 +354,11 @@ class DatabaseClient:
         1. UPDATE status order menjadi 'Diproses' (status_id = 2).
         2. INSERT record baru di production_batch dan ambil production_id yang baru.
         """
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal memulai produksi."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+        
         try:
             update_order_query = "UPDATE orders SET status_id = 2 WHERE order_id = %s;"
             self.cursor.execute(update_order_query, (order_id,))
@@ -294,7 +370,16 @@ class DatabaseClient:
             """
             self.cursor.execute(insert_batch_query, (order_id, machine_id))
             
-            new_batch_id = self.cursor.fetchone()[0]
+            fetched_result = self.cursor.fetchone()
+
+            if fetched_result is None:
+                # Jika INSERT gagal mengembalikan ID, ini adalah kegagalan transaksi
+                error_msg = f"❌ Transaction GAGAL: INSERT Batch tidak mengembalikan ID untuk Order ID {order_id}."
+                print(error_msg)
+                self.conn.rollback() 
+                return None
+            
+            new_batch_id = fetched_result[0]
             self._commit() 
             
             return new_batch_id
@@ -305,11 +390,12 @@ class DatabaseClient:
             return None
     
     def finish_production_transaction(self, order_id: int, production_batch_id: int):
-        """
-        [TODO 2] Menyelesaikan transaksi produksi:
-        1. UPDATE record production_batch (set finish_time dan status 'COMPLETED').
-        2. UPDATE status order menjadi 'Selesai' (status_id = 4).
-        """
+        
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal menyelesaikan produksi."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         try:
             update_batch_query = """
                 UPDATE production_batch SET finish_time = NOW(), status = 'COMPLETED'
@@ -331,11 +417,18 @@ class DatabaseClient:
 
     def adjust_inventory_transaction(self, item_changes: List[tuple]):
         """Mengurangi atau menambah stok bahan baku secara transaksional."""
+        
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal update inventory."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         update_query = """
             UPDATE ingredient
             SET stock = stock - %s 
             WHERE ingredient_name = %s;
         """
+
         try:
             for item_name, reduction_amount in item_changes:
                 # Pastikan pengurangan adalah angka positif (reduction_amount)
@@ -343,6 +436,7 @@ class DatabaseClient:
             
             self._commit()
             return True
+        
         except psycopg2.Error as e:
             self.conn.rollback()
             print(f"❌ Transaction GAGAL saat update inventory. Error: {e}")
@@ -350,6 +444,13 @@ class DatabaseClient:
 
     def check_user_exists(self, username: str, email: str) -> bool:
         """Memeriksa apakah username atau email sudah terdaftar."""
+
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal memeriksa pengguna."
+            print(error_msg)
+            # Melempar error untuk ditangani oleh kode pemanggil
+            raise ConnectionError(error_msg)
+    
         # Query untuk Customer
         query_customer = """
             SELECT 1 FROM customer
@@ -379,6 +480,12 @@ class DatabaseClient:
 
     def register_new_customer(self, username: str, fullname: str, phone: str, email: str, hashed_password: str) -> int | None:
         """Menyimpan pengguna baru ke tabel customer."""
+
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal registrasi pelanggan."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             INSERT INTO customer (username, fullname, phone, email, password, role_id)
             VALUES (%s, %s, %s, %s, %s, 2) 
@@ -386,10 +493,18 @@ class DatabaseClient:
         """
         try:
             self.cursor.execute(query, (username, fullname, phone, email, hashed_password))
+            fetched_result = self.cursor.fetchone()
+        
+            if fetched_result is None:
+                print("❌ DB Error: INSERT customer tidak mengembalikan ID.")
+                self.conn.rollback() 
+                return None
 
-            new_customer_id = self.cursor.fetchone()[0]
+            new_customer_id = fetched_result[0]
+
             self.conn.commit()
             return new_customer_id
+        
         except psycopg2.IntegrityError as e:
             self.conn.rollback()
             # IntegrityError terjadi jika UNIQUE (username/email) dilanggar
@@ -402,6 +517,12 @@ class DatabaseClient:
 
     def authenticate_customer(self, username: str, hashed_password: str) -> dict | None:
         """Mencari dan memverifikasi Customer."""
+
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal autentikasi."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+        
         query = """
             SELECT customer_id, username, fullname, email
             FROM customer
@@ -412,7 +533,12 @@ class DatabaseClient:
             result = self.cursor.fetchone()
 
             if result:
-                # Mengkonversi hasil tuple menjadi dictionary untuk dikembalikan ke AuthView
+                if self.cursor.description is None:
+                    # Ini seharusnya tidak terjadi pada SELECT yang berhasil, tapi kita tangani
+                    print("❌ Autentikasi berhasil, tapi metadata kolom tidak tersedia.")
+                    return None 
+            
+                # Mengkonversi hasil tuple menjadi dictionary
                 columns = [desc[0] for desc in self.cursor.description]
                 return dict(zip(columns, result))
             else:
@@ -423,6 +549,11 @@ class DatabaseClient:
 
     def authenticate_admin(self, username: str, hashed_password: str) -> dict | None:
         """Mencari dan memverifikasi Admin."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal autentikasi Admin."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             SELECT admin_id, username, email
             FROM admin
@@ -433,6 +564,10 @@ class DatabaseClient:
             result = self.cursor.fetchone()
 
             if result:
+                if self.cursor.description is None:
+                    print("❌ Autentikasi Admin berhasil, tapi metadata kolom tidak tersedia.")
+                    return None 
+
                 # Mengkonversi hasil tuple menjadi dictionary
                 columns = [desc[0] for desc in self.cursor.description]
                 return dict(zip(columns, result))
@@ -448,7 +583,11 @@ class DatabaseClient:
         Menyimpan produk baru ke tabel product dan resepnya ke product_ingredients dalam satu transaksi.
         Recipe: List of (ingredient_id, quantity).
         """
-        
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal menambahkan produk."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         # 1. Query untuk INSERT Produk
         product_query = """
             INSERT INTO product (product_name, description, price)
@@ -466,7 +605,15 @@ class DatabaseClient:
             # --- Langkah 1: INSERT Produk dan Ambil ID ---
             # Ini adalah tempat potensi kegagalan pertama (misal: koneksi putus)
             self.cursor.execute(product_query, (name, description, price))
-            new_product_id = self.cursor.fetchone()[0]
+            fetched_result = self.cursor.fetchone()
+        
+            if fetched_result is None:
+                # Jika INSERT gagal mengembalikan ID, batalkan.
+                print("❌ DB Error: INSERT Product tidak mengembalikan Product ID.")
+                self.conn.rollback() # Aman karena guardrail di atas
+                return None
+
+            new_product_id = fetched_result[0]
             
             # --- Langkah 2: LOOP dan INSERT Resep ---
             # Ini adalah tempat potensi kegagalan kedua (misal: Foreign Key Constraint violation)
@@ -486,6 +633,12 @@ class DatabaseClient:
 
     def get_product_by_id(self, product_id: int) -> dict | None:
         """Mengambil detail produk berdasarkan ID."""
+
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal mengambil produk."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             SELECT product_id, product_name, description, price
             FROM product
@@ -496,9 +649,14 @@ class DatabaseClient:
             result = self.cursor.fetchone()
 
             if result:
+                if self.cursor.description is None:
+                    print("❌ SELECT berhasil, tetapi metadata kolom tidak tersedia.")
+                    return None
+            
                 # Mengkonversi hasil tuple menjadi dictionary
                 columns = [desc[0] for desc in self.cursor.description]
                 return dict(zip(columns, result))
+        
             return None
         except psycopg2.Error as e:
             print(f"❌ DB Error (get_product_by_id): {e}")
@@ -506,6 +664,11 @@ class DatabaseClient:
     
     def update_product(self, product_id: int, name: str, description: str, price: int) -> bool:
         """Memperbarui detail produk."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal update produk."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             UPDATE product
             SET product_name = %s, description = %s, price = %s
@@ -525,6 +688,11 @@ class DatabaseClient:
     def delete_product_and_relations(self, product_id: int) -> bool:
         """Menghapus produk dari tabel 'product'. Karena adanya FOREIGN KEY 
         dengan ON DELETE CASCADE di product_ingredients, relasi akan terhapus otomatis."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi atau kursor DB belum diinisialisasi. Gagal menghapus produk."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+        
         query = """
             DELETE FROM product
             WHERE product_id = %s;
@@ -546,15 +714,21 @@ class DatabaseClient:
             FROM ingredient
             ORDER BY ingredient_id;
         """
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengambil bahan baku."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         try:
             self.cursor.execute(query)
-            # Ambil semua hasil
             results = self.cursor.fetchall()
-
-            # Ambil nama kolom
+            # Ambil semua hasil
+            if self.cursor.description is None:
+                print("❌ SELECT berhasil, tetapi metadata kolom tidak tersedia.")
+                return []
+            
             columns = [desc[0] for desc in self.cursor.description]
 
-            # Ubah List of Tuples menjadi List of Dictionaries (agar sesuai dengan kode view lama)
             ingredients_list = []
             for row in results:
                 ingredients_list.append(dict(zip(columns, row)))
@@ -567,6 +741,11 @@ class DatabaseClient:
 
     def check_ingredient_exists(self, name: str) -> dict | None:
         """Mencari bahan baku berdasarkan nama (case-insensitive). Mengembalikan data jika ditemukan."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal memeriksa bahan baku."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             SELECT ingredient_id, ingredient_name, unit, stock, minimum_stock
             FROM ingredient
@@ -576,8 +755,13 @@ class DatabaseClient:
             self.cursor.execute(query, (name,))
             result = self.cursor.fetchone()
             if result:
+                if self.cursor.description is None:
+                    print("❌ SELECT berhasil, tetapi metadata kolom tidak tersedia.")
+                    return None
+
                 columns = [desc[0] for desc in self.cursor.description]
                 return dict(zip(columns, result))
+        
             return None
         except psycopg2.Error as e:
             print(f"❌ DB Error (check_ingredient_exists): {e}")
@@ -590,6 +774,11 @@ class DatabaseClient:
             SET stock = stock + %s
             WHERE ingredient_id = %s;
         """
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal update stok."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         try:
             self.cursor.execute(query, (added_stock, ingredient_id))
             self.conn.commit()
@@ -601,6 +790,11 @@ class DatabaseClient:
 
     def add_new_ingredient(self, name: str, unit: str, stock: int, min_stock: int) -> int | None:
         """Menyimpan bahan baku baru ke database."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal menambah bahan baku."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             INSERT INTO ingredient (ingredient_name, unit, stock, minimum_stock)
             VALUES (%s, %s, %s, %s)
@@ -608,9 +802,21 @@ class DatabaseClient:
         """
         try:
             self.cursor.execute(query, (name, unit, stock, min_stock))
-            new_id = self.cursor.fetchone()[0]
+        
+            # --- PERBAIKAN: Pengecekan fetchone() ---
+            fetched_result = self.cursor.fetchone()
+
+            if fetched_result is None:
+                print("❌ DB Error: INSERT ingredient tidak mengembalikan ID.")
+                self.conn.rollback() 
+                return None
+
+            new_id = fetched_result[0]
+            # ---------------------------------------
+
             self.conn.commit()
             return new_id
+    
         except psycopg2.Error as e:
             self.conn.rollback()
             print(f"❌ DB Error (add_new_ingredient): {e}")
@@ -618,6 +824,11 @@ class DatabaseClient:
 
     def get_ingredient_by_id(self, ing_id: int) -> dict | None:
         """Mengambil detail bahan baku berdasarkan ID."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengambil detail bahan baku."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             SELECT ingredient_id, ingredient_name, unit, stock, minimum_stock
             FROM ingredient
@@ -628,9 +839,13 @@ class DatabaseClient:
             result = self.cursor.fetchone()
 
             if result:
-                # Mengkonversi hasil tuple menjadi dictionary
+                if self.cursor.description is None:
+                    print("❌ SELECT berhasil, tetapi metadata kolom tidak tersedia.")
+                    return None
+
                 columns = [desc[0] for desc in self.cursor.description]
                 return dict(zip(columns, result))
+        
             return None
         except psycopg2.Error as e:
             print(f"❌ DB Error (get_ingredient_by_id): {e}")
@@ -638,6 +853,11 @@ class DatabaseClient:
 
     def update_ingredient_details(self, ing_id: int, name: str, unit: str, min_stock: int) -> bool:
         """Memperbarui nama, unit, dan minimum_stock bahan baku."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal update detail bahan baku."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             UPDATE ingredient
             SET ingredient_name = %s, unit = %s, minimum_stock = %s
@@ -656,6 +876,11 @@ class DatabaseClient:
 
     def set_ingredient_stock(self, ing_id: int, new_stock: int) -> bool:
         """Mengatur nilai stok bahan baku ke nilai yang spesifik."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengatur stok."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+        
         query = """
             UPDATE ingredient
             SET stock = %s
@@ -675,6 +900,11 @@ class DatabaseClient:
     def delete_ingredient_and_relations(self, ing_id: int) -> bool:
         """Menghapus bahan baku dari tabel 'ingredient'. Relasi di product_ingredients
         akan terhapus otomatis karena adanya ON DELETE CASCADE."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal menghapus bahan baku."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             DELETE FROM ingredient
             WHERE ingredient_id = %s;
@@ -691,7 +921,11 @@ class DatabaseClient:
         
     def get_popular_products(self, limit: int = 10) -> list:
         """Mengambil daftar produk yang paling banyak dipesan (diurutkan berdasarkan total kuantitas)."""
-        
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengambil produk populer."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = f"""
             SELECT 
                 p.product_name,
@@ -710,14 +944,19 @@ class DatabaseClient:
         try:
             self.cursor.execute(query)
             results = self.cursor.fetchall()
-            
-            # Mengkonversi hasil tuple menjadi dictionary (untuk kemudahan di View)
-            columns = [desc[0] for desc in self.cursor.description] # product_name, total_ordered
-            
+
+            # --- GUARDRAIL DESCRIPTION ---
+            if self.cursor.description is None:
+                print("❌ SELECT berhasil, tetapi metadata kolom tidak tersedia.")
+                return []
+
+            # Mengkonversi hasil tuple menjadi dictionary
+            columns = [desc[0] for desc in self.cursor.description]
+
             popular_products_list = []
             for row in results:
                 popular_products_list.append(dict(zip(columns, row)))
-                
+
             return popular_products_list
             
         except psycopg2.Error as e:
@@ -726,6 +965,11 @@ class DatabaseClient:
 
     def get_low_stock_ingredients(self) -> list:
         """Mengambil daftar bahan baku yang stoknya lebih rendah atau sama dengan minimum_stock."""
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengambil stok rendah."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         query = """
             SELECT 
                 ingredient_name, unit, stock, minimum_stock
@@ -741,14 +985,17 @@ class DatabaseClient:
             results = self.cursor.fetchall()
             
             # Mengkonversi hasil tuple menjadi dictionary (untuk kemudahan di View)
+            if self.cursor.description is None:
+                print("❌ SELECT berhasil, tetapi metadata kolom tidak tersedia.")
+                return []
+            
             columns = [desc[0] for desc in self.cursor.description] 
             
             low_stock_list = []
             for row in results:
                 low_stock_list.append(dict(zip(columns, row)))
-                
-            return low_stock_list
             
+            return low_stock_list
         except psycopg2.Error as e:
             print(f"❌ DB Error (get_low_stock_ingredients): {e}")
             return []
@@ -758,6 +1005,11 @@ class DatabaseClient:
         Mengupdate stok bahan baku dengan menambahkan/mengurangi 'change_amount' 
         dari stok saat ini menggunakan UPDATE query.
         """
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengubah stok."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         # Kita menggunakan operator +/-, yang secara atomik menambahkan nilai.
         query = """
             UPDATE ingredient
@@ -780,12 +1032,12 @@ class DatabaseClient:
         Menghitung total bahan baku yang terpakai untuk Order tertentu 
         dan mengurangi stok yang sesuai secara transaksional.
         """
-        # Query: Hitung total bahan baku yang dibutuhkan untuk seluruh Order (menggunakan JOIN dan SUM)
-        # Note: Kita menggunakan SELECT INTO TEMP TABLE atau CTE (Common Table Expression) 
-        # untuk memastikan perhitungan total dilakukan hanya sekali dan digunakan 
-        # untuk UPDATE berikutnya. Namun, untuk kesederhanaan, kita akan menggunakan
-        # CTE untuk menghitung total kebutuhan:
         
+        if self.cursor is None or self.conn is None:
+            error_msg = "❌ Koneksi DB belum diinisialisasi. Gagal mengurangi stok untuk Order."
+            print(error_msg)
+            raise ConnectionError(error_msg)
+    
         deduction_query = """
         WITH ingredients_needed AS (
             SELECT
